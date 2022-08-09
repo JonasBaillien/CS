@@ -1,0 +1,1365 @@
+#########################################################
+### file containing all functions used in the scripts ###
+### of this repository                                ###
+#########################################################
+
+### required libraries ###
+##########################
+
+library(copula)
+library(QBAsyDist)
+library(lessR)
+library(quantmod)
+library(doParallel)
+library(sn)
+library(ks)
+library(nloptr)
+library(copula)
+
+
+### working directory ###
+#########################
+ wd <- getwd()
+ setwd(wd)
+
+
+
+### function to fit a univariate skew-normal distribution with assumed symmetry or not ###
+##########################################################################################
+
+fitUVSN=function(Y,symmetric=T){
+  # Y: n-vector of observations from SN-distribution
+  # symmetric: logical, should symmetry be assumed (alpha=0) or not (alpha!=0)?
+  
+  n <- length(Y)
+  if(symmetric==T){
+    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',fixed.param = list(alpha=0),selm.control = list(method="MLE"))
+    return(fit$param$dp.complete)
+  } else {
+    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',selm.control = list(method="MLE"))
+    return(fit$param$dp)
+  }
+}
+
+
+
+
+
+### density functions of used 1D QBA-distributions ###
+######################################################
+
+# Two-piece normal density with skewing parameter alpha in numeric vector x (location = 0, scale = 1)
+twopiecenormaldensity=function(x,alpha){
+  f=(x<=0)*alpha*(1-alpha)*sqrt(2/pi)*exp( -1/2*(1-alpha)^2*(x)^2)+
+    (x>0)*alpha*(1-alpha)*sqrt(2/pi)*exp( -1/2*alpha^2*(x)^2)
+  return(f)
+}
+
+# Two-piece laplace density with skewing parameter alpha in numeric vector x (location = 0, scale = 1)
+twopiecelaplacedensity=function(x,alpha){
+  f=(x<=0)*alpha*(1-alpha)*exp( (1-alpha)*x)+
+    (x>0)*alpha*(1-alpha)*exp( -alpha*x)
+  return(f)
+}
+
+# Two-piece student-t density with skewing parameter alpha in numeric vector x (location = 0, scale = 1)
+twopiecestudentdensity=function(x,alpha,nu){
+  f=(x<=0)*2*alpha*(1-alpha)/(sqrt(nu)*beta(1/2,nu/2))*(1+(1-alpha)^2/nu*(x)^2)^(-(nu+1)/2) +
+    (x>0)*2*alpha*(1-alpha)/(sqrt(nu)*beta(1/2,nu/2))*(1+alpha^2/nu*(x)^2)^(-(nu+1)/2)
+  return(f)
+}
+
+# Two-piece logistic density with skewing parameter alpha in numeric vector x (location = 0, scale = 1)
+twopiecelogisticdensity=function(x,alpha){
+  f=(x<=0)*2*alpha*(1-alpha)*exp((1-alpha)*x)/(1+exp((1-alpha)*x))^2+
+    (x>0)*2*alpha*(1-alpha)*exp(-alpha*x)/(1+exp(-alpha*x))^2
+  return(f)
+}
+
+
+
+
+### functions for fitting the four univariate quantile based distributions ###
+##############################################################################
+
+### normal ###
+##############
+
+### log-likelihood function in the correct form
+dQBN=function(pars,x){
+  # pars contains in order: alpha, mu and phi
+  # x is the data
+  
+  # extracting parameters
+  alpha=pars[1]
+  mu=pars[2]
+  phi=pars[3]
+  
+  # calculating likelihood in each datapoint
+  f=1*(x<=mu)*(alpha*(1-alpha)*sqrt(2/(pi*phi^2))*exp( -1/2*(1-alpha)^2*((mu-x)/phi)^2))+
+    1*(x>mu)*(alpha*(1-alpha)*sqrt(2/(pi*phi^2))*exp( -1/2*alpha^2*((x-mu)/phi)^2)) 
+  
+  # returning minus log-likelihood
+  return(-sum(log(f)))
+}
+
+### function for fitting
+fitAND=function(data,start=NULL,nstart=10,seed=NULL){
+  # function for fitting a quantile-based normal distribution to the data
+  # using maximum likelihood
+  
+  # data is a numeric vector containing the data
+  # start is an optional set of starting values for the optimizer
+  # nstart is the number of different random starting values for the parameter fits
+  
+  
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi)
+  lowerbounds=c(0,-Inf,0)
+  upperbounds=c(1,Inf,Inf)
+  
+
+  if(is.null(start)){
+    
+    # set seed if supplied
+    if(!is.null(seed)){
+      
+      set.seed(seed)
+      
+    } else {
+      
+      seed=sample(1:10^8,1)
+      set.seed(seed)
+      
+    }
+    
+    # generate starting values
+    startalpha=runif(nstart)
+    startmu=runif(nstart,min=min(data),max=max(data))
+    startphi=runif(nstart,min=0,max=sd(data))
+    
+    # combine starting values in matrix
+    x0=cbind(startalpha,startmu,startphi)
+    
+    # holding vectors for parameter estimates and log-likelihood
+    parsfit=matrix(NA,nrow=nstart,ncol=3)
+    loglfit=rep(NA,nstart)
+    
+    # main loop for parameter estimation using the bobyqa function from the nloptr package
+    for(i in 1:nstart){
+      
+      # in case of error for certain starting values, they are suppressed
+      try({
+        # set seed for consistency of results
+        seed=seed+i
+        
+        # minimization of minus the log likelihood
+        output=bobyqa(x0=x0[i,],fn=dQBN,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=50000,xtol_rel=10^-5))
+        i=i+1
+        
+        # optimal parameters and minus log-likelihood
+        parsfit[i,]=output$par
+        loglfit[i]=output$value
+      },silent=T)
+    }
+    
+    # returning best fit
+    indmin=which.min(loglfit)
+    bestpars=parsfit[indmin,]
+    
+    return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"LogLikelihood"=-loglfit[indmin]))
+    
+  } else {
+    
+    # set seed for consistency of results
+    seed=seed+i
+    
+    # minimization of minus log-likelihood
+    output=bobyqa(x0=start,fn=dQBN,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=5000,xtol_rel=10^-5))
+    
+    # returning parameters and log-likelihood
+    return(list("alpha"=output$par[1],"mu"=output$par[2],"phi"=output$par[3],"LogLikelihood"=-output$value))
+    
+  }
+}
+
+
+### Laplace ###
+###############
+
+### log-likelihood function in the correct form
+dQBLa=function(pars,x){
+  # pars contains in order: alpha, mu and phi
+  # x is the data
+  
+  # extracting parameters
+  alpha=pars[1]
+  mu=pars[2]
+  phi=pars[3]
+  
+  # calculating likelihood in each datapoint
+  f=1*(x<=mu)*(alpha*(1-alpha)/phi*exp( -(1-alpha)*(mu-x)/phi))+
+    1*(x>mu)*(alpha*(1-alpha)/phi*exp( -alpha*(x-mu)/phi))  
+  
+  # returning minus log-likelihood
+  return(-sum(log(f)))
+}
+
+### function for fitting
+fitALaD=function(data,start=NULL,nstart=10,seed=NULL){
+  # function for fitting a quantile-based normal distribution to the data
+  # using maximum likelihood
+  
+  # data is a numeric vector containing the data
+  # start is an optional set of starting values for the optimizer
+  # nstart is the number of different random starting values for the parameter fits
+  
+  
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi)
+  lowerbounds=c(0,-Inf,0)
+  upperbounds=c(1,Inf,Inf)
+  
+  
+  if(is.null(start)){
+    
+    # set seed if supplied
+    if(!is.null(seed)){
+      
+      set.seed(seed)
+      
+    } else {
+      
+      seed=sample(1:10^8,1)
+      set.seed(seed)
+      
+    }
+    
+    # generate starting values
+    startalpha=runif(nstart)
+    startmu=runif(nstart,min=min(data),max=max(data))
+    startphi=runif(nstart,min=0,max=sd(data))
+    
+    # combine starting values in matrix
+    x0=cbind(startalpha,startmu,startphi)
+    
+    # holding vectors for parameter estimates and log-likelihood
+    parsfit=matrix(NA,nrow=nstart,ncol=3)
+    loglfit=rep(NA,nstart)
+    
+    # main loop for parameter estimation using the bobyqa function from the nloptr package
+    for(i in 1:nstart){
+      
+      # in case of error for certain starting values, they are suppressed
+      try({
+        # set seed for consistency of results
+        seed=seed+i
+        
+        # minimization of minus the log likelihood
+        output=bobyqa(x0=x0[i,],fn=dQBLa,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=50000,xtol_rel=10^-5))
+
+        # optimal parameters and minus log-likelihood
+        parsfit[i,]=output$par
+        loglfit[i]=output$value
+      },silent=T)
+    }
+    
+    # returning best fit
+    indmin=which.min(loglfit)
+    bestpars=parsfit[indmin,]
+    
+    return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"LogLikelihood"=-loglfit[indmin]))
+    
+  } else {
+    
+    # set seed for consistency of results
+    seed=seed+i
+    
+    # minimization of minus log-likelihood
+    output=bobyqa(x0=start,fn=dQBLa,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=50000,xtol_rel=10^-5))
+    
+    # returning parameters and log-likelihood
+    return(list("alpha"=output$par[1],"mu"=output$par[2],"phi"=output$par[3],"LogLikelihood"=-output$value))
+    
+  }
+}
+
+
+### Logistic ###
+################
+
+### log-likelihood function in the correct form
+dQBLo=function(pars,x){
+  # pars contains in order: alpha, mu and phi
+  # x is the data
+  
+  # extracting parameters
+  alpha=pars[1]
+  mu=pars[2]
+  phi=pars[3]
+  
+  # calculating likelihood in each datapoint
+  f=1*(x<=mu)*(2*alpha*(1-alpha)/phi*exp(-(1-alpha)*(mu-x)/phi)/(1+exp(-(1-alpha)*(mu-x)/phi))^2)+
+    1*(x>mu)*(2*alpha*(1-alpha)/phi*exp(-alpha*(x-mu)/phi)/(1+exp(-alpha*(x-mu)/phi))^2)  
+  
+  # returning minus log-likelihood
+  return(-sum(log(f)))
+}
+
+### function for fitting
+fitALoD=function(data,start=NULL,nstart=10,seed=NULL){
+  # function for fitting a quantile-based normal distribution to the data
+  # using maximum likelihood
+  
+  # data is a numeric vector containing the data
+  # start is an optional set of starting values for the optimizer
+  # nstart is the number of different random starting values for the parameter fits
+  
+  
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi)
+  lowerbounds=c(0,-Inf,0)
+  upperbounds=c(1,Inf,Inf)
+  
+  
+  if(is.null(start)){
+    
+    # set seed if supplied
+    if(!is.null(seed)){
+      
+      set.seed(seed)
+      
+    } else {
+      
+      seed=sample(1:10^8,1)
+      set.seed(seed)
+      
+    }
+    
+    # generate starting values
+    startalpha=runif(nstart)
+    startmu=runif(nstart,min=min(data),max=max(data))
+    startphi=runif(nstart,min=0,max=sd(data))
+    
+    # combine starting values in matrix
+    x0=cbind(startalpha,startmu,startphi)
+    
+    # holding vectors for parameter estimates and log-likelihood
+    parsfit=matrix(NA,nrow=nstart,ncol=3)
+    loglfit=rep(NA,nstart)
+    
+    # main loop for parameter estimation using the bobyqa function from the nloptr package
+    for(i in 1:nstart){
+      
+      # in case of error for certain starting values, they are suppressed
+      try({
+        # set seed for consistency of results
+        seed=seed+i
+        
+        # minimization of minus the log likelihood
+        output=bobyqa(x0=x0[i,],fn=dQBLo,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=50000,xtol_rel=10^-5))
+
+        # optimal parameters and minus log-likelihood
+        parsfit[i,]=output$par
+        loglfit[i]=output$value
+      },silent=T)
+    }
+    
+    # returning best fit
+    indmin=which.min(loglfit)
+    bestpars=parsfit[indmin,]
+    
+    return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"LogLikelihood"=-loglfit[indmin]))
+    
+  } else {
+    
+    # set seed for consistency of results
+    seed=seed+i
+    
+    # minimization of minus log-likelihood
+    output=bobyqa(x0=start,fn=dQBLo,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=50000,xtol_rel=10^-5))
+    
+    # returning parameters and log-likelihood
+    return(list("alpha"=output$par[1],"mu"=output$par[2],"phi"=output$par[3],"LogLikelihood"=-output$value))
+    
+  }
+}
+
+
+### Student's t ###
+###################
+
+### log-likelihood function in the correct form
+dQBT=function(pars,x){
+  # pars contains in order: alpha, mu, phi and degrees of freedom
+  # x is the data
+  
+  # extracting parameters
+  alpha=pars[1]
+  mu=pars[2]
+  phi=pars[3]
+  nu=pars[4]
+  
+  # calculating likelihood in each datapoint
+  f=1*(x<=mu)*(2*alpha*(1-alpha)/(phi*sqrt(nu)*beta(1/2,nu/2))*(1+(1-alpha)^2/nu*((mu-x)/phi)^2)^(-(nu+1)/2))+
+    1*(x>mu)*(2*alpha*(1-alpha)/(phi*sqrt(nu)*beta(1/2,nu/2))*(1+alpha^2/nu*((x-mu)/phi)^2)^(-(nu+1)/2))  
+  
+  # returning minus log-likelihood
+  return(-sum(log(f)))
+}
+
+### function for fitting
+fitATD=function(data,start=NULL,nstart=10,seed=NULL){
+  # function for fitting a quantile-based normal distribution to the data
+  # using maximum likelihood
+  
+  # data is a numeric vector containing the data
+  # start is an optional set of starting values for the optimizer
+  # nstart is the number of different random starting values for the parameter fits
+  
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi,df)
+  lowerbounds=c(0,-Inf,0,2)
+  upperbounds=c(1,Inf,Inf,2000)
+  
+  
+  if(is.null(start)){
+    
+    # set seed if supplied
+    if(!is.null(seed)){
+      
+      set.seed(seed)
+      
+    } else {
+      
+      seed=sample(1:10^8,1)
+      set.seed(seed)
+      
+    }
+    
+    # generate starting values
+    startalpha=runif(nstart)
+    startmu=runif(nstart,min=min(data),max=max(data))
+    startphi=runif(nstart,min=0,max=sd(data))
+    startnu=runif(nstart,min=2,max=200)
+    
+    # combine starting values in matrix
+    x0=cbind(startalpha,startmu,startphi,startnu)
+    
+    # holding vectors for parameter estimates and log-likelihood
+    parsfit=matrix(NA,nrow=nstart,ncol=4)
+    loglfit=rep(NA,nstart)
+    
+    # main loop for parameter estimation using the bobyqa function from the nloptr package
+    for(i in 1:nstart){
+      
+      # in case of error for certain starting values, they are suppressed
+      try({
+        # set seed for consistency of results
+        seed=seed+i
+        
+        # minimization of minus the log likelihood
+        output=bobyqa(x0=x0[i,],fn=dQBT,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=50000,xtol_rel=10^-5))
+        
+        # optimal parameters and minus log-likelihood
+        parsfit[i,]=output$par
+        loglfit[i]=output$value
+      },silent=T)
+    }
+    
+    # returning best fit
+    indmin=which.min(loglfit)
+    bestpars=parsfit[indmin,]
+    
+    return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"nu"=bestpars[4],"LogLikelihood"=-loglfit[indmin]))
+    
+  } else {
+    
+    # set seed for consistency of results
+    seed=seed+i
+    
+    # minimization of minus log-likelihood
+    output=bobyqa(x0=start,fn=dQBT,lower=lowerbounds,upper=upperbounds,nl.info=F,x=data,control = list(maxeval=50000,xtol_rel=10^-5))
+    
+    # returning parameters and log-likelihood
+    return(list("alpha"=output$par[1],"mu"=output$par[2],"phi"=output$par[3],"nu"=output$par[4],"LogLikelihood"=-output$value))
+    
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+### functions for fitting a symmetric copula with QBA-marginals  ###   
+####################################################################
+
+fitCopulaQBAM=function(X,cop,margfunc=NULL,symmetric=FALSE){
+  
+  # function for parametric fit of a (symmetric) copula to data where margins 
+  # are assumed to be from a QBA distribution
+  
+  # X is a nxd-matrix which contains n-observations of d-variate points which form the data
+  
+  # cop is an object of the copula-class. Since possible symmetry is required, options are
+  # Frank (d=2) and Farlie-Gumbel-Morgenstern (d=2) elliptical copulas
+  
+  # margfunc is a d-vector containing the name of the QBA margin. Options are 
+  # "normal", "laplace", "logistic" and "t". If NULL, the best fitting one based
+  # on AIC is used from the four possibilities
+  
+  # symmetric is a logical whether symmetry is assumed or not (this only has effect
+  # on the estimation of the margins) if TRUE, in the estimation of the QBA-margins
+  # the skewness parameter is fixed at 0.5 (indicating symmetry) otherwise it is  
+  # estimated based on the data provided
+  
+  X=as.matrix(na.omit(X))
+  
+  n=nrow(X)
+  d=ncol(X)
+  
+  ### check for correct copula object
+  check.cop=
+    if(d==2){
+      if(class(cop)!="frankCopula" & !is(cop,"ellipCopula") & class(cop)!="fgmCopula"){
+        stop("Invalid copula object provided")
+      }
+    } else {
+      if(!is(cop,"ellipCopula")){
+        stop("Invalid copula object provided")
+      }
+    }
+  
+
+  
+  
+  ### estimating margins and pseudo-observations
+  if(is.null(margfunc)){
+    
+    # holding matrices
+    U=matrix(NA,nrow=n,ncol=d)
+    
+    parameters=matrix(NA,nrow=4,ncol=d)
+    rownames(parameters)=c('alpha','mu','phi','nu')
+    
+    margin=rep(NA,d)
+    
+    loglikelihood=rep(NA,d)
+    
+    # choices for margin functions
+    mf=c("normal","laplace","logistic","t")
+    
+    for(i in 1:d){
+      # fitting the the possible margins
+      fitN=fitSAND(X = X[,i],symmetric=symmetric)
+      fitLa=fitSALaD(X = X[,i],symmetric=symmetric)
+      fitLo=fitSALoD(X = X[,i],symmetric=symmetric)
+      fitT=fitSATD(X = X[,i],symmetric=symmetric)
+      
+      # uniform tranform (CDF values) of the data
+      Ut=matrix(NA,nrow=n,ncol=4)
+      Ut[,1]=QBAsyDist::pAND(q=X[,i],mu=fitN$mu,phi=fitN$phi,alpha=fitN$alpha)
+      Ut[,2]=QBAsyDist::pALaD(q=X[,i],mu=fitLa$mu,phi=fitLa$phi,alpha=fitLa$alpha)
+      Ut[,3]=QBAsyDist::pALoD(q=X[,i],mu=fitLo$mu,phi=fitLo$phi,alpha=fitLo$alpha)
+      Ut[,4]=QBAsyDist::pATD(q=X[,i],mu=fitT$mu,phi=fitT$phi,alpha=fitT$alpha,nu = fitT$nu)
+      
+      # fitted parameters
+      pars=matrix(NA,nrow=4,ncol=4)
+      rownames(pars)=c('alpha','mu','phi','nu')
+      pars[1:3,1]=c(fitN$alpha,fitN$mu,fitN$phi)
+      pars[1:3,2]=c(fitLa$alpha,fitLa$mu,fitLa$phi)
+      pars[1:3,3]=c(fitLo$alpha,fitLo$mu,fitLo$phi)
+      pars[1:4,4]=c(fitT$alpha,fitT$mu,fitT$phi,fitT$nu)
+      
+      # log-likelihood
+      logl=rep(NA,4)
+      logl[1]=fitN$LogLikelihood
+      logl[2]=fitLa$LogLikelihood
+      logl[3]=fitLo$LogLikelihood
+      logl[4]=fitT$LogLikelihood
+      
+      AICfit=-2*c(fitN$LogLikelihood,fitLa$LogLikelihood,fitLo$LogLikelihood,fitT$LogLikelihood)+2*c(3,3,3,4)
+      margin[i]=mf[which.min(AICfit)]
+      U[,i]=Ut[,which.min(AICfit)]
+      parameters[,i]=pars[,which.min(AICfit)]
+      loglikelihood[i]=logl[which.min(AICfit)]
+          
+    }
+  } else {
+    
+    # holding matrices
+    U=matrix(NA,nrow=n,ncol=d)
+      
+    parameters=matrix(NA,nrow=4,ncol=d)
+    rownames(parameters)=c('alpha','mu','phi','nu')
+    
+    margin=margfunc
+    
+    loglikelihood=rep(NA,d)
+    
+    for(i in 1:d){
+      fitt=switch(margfunc[i],"normal"=fitSAND(X = X[,i],symmetric=symmetric),
+                  "logistic"=fitSALoD(X = X[,i],symmetric=symmetric),
+                  "laplace"=fitSALaD(X = X[,i],symmetric=symmetric),
+                  "t"=fitSATD(X = X[,i],symmetric=symmetric))
+      U[,i]=switch(margfunc[i],"normal"=QBAsyDist::pAND(q=X[,i],mu=fitt$mu,phi=fitt$phi,alpha=fitt$alpha),
+                        "logistic"=QBAsyDist::pALoD(q=X[,i],mu=fitt$mu,phi=fitt$phi,alpha=fitt$alpha),
+                        "laplace"=QBAsyDist::pALaD(q=X[,i],mu=fitt$mu,phi=fitt$phi,alpha=fitt$alpha),
+                        "t"=QBAsyDist::pATD(q=X[,i],mu=fitt$mu,phi=fitt$phi,alpha=fitt$alpha,nu = fitt$nu))
+      parameters[1:3,i]=c(fitt$alpha,fitt$mu,fitt$phi)
+      if(margfunc[i]=="t"){
+        parameters[4,i]=fitt$nu
+      }
+      loglikelihood[i]=fitt$LogLikelihood
+    }
+    
+  }
+  
+  fitM=list("margins"=margin,"parameters"=parameters,"LogLikelihood"=loglikelihood)
+  
+  # fitting copula to pseudo observations
+  fitC=fitCopula(copula = cop,data = U)
+  
+  
+  return(list("fitC"=fitC,"fitM"=fitM))
+}
+
+
+### normal fitting
+fitSAND=function(X,symmetric=FALSE){
+  # function for fitting a quantile-based normal distribution to the data
+  # using maximum likelihood
+  
+  # X is a numeric vector containing the data
+  # symmetric is a logical indicating if symmetry is assumed or not (alpha=0.5)
+    
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi)
+  if(symmetric==FALSE){
+    lowerbounds=c(0,-Inf,0)
+    upperbounds=c(1,Inf,Inf)
+  } else {
+    lowerbounds=c(0.5,-Inf,0)
+    upperbounds=c(0.5,Inf,Inf)
+  }
+    
+  # generate starting values
+  if(symmetric==FALSE){
+    startalpha=runif(10)
+  } else {
+    startalpha=rep(0.5,10)
+  }
+  startmu=runif(10,min=min(X),max=max(X))
+  startphi=runif(10,min=0,max=sd(X))
+  
+  # combine starting values in matrix
+  x0=cbind(startalpha,startmu,startphi)
+  
+  # holding vectors for parameter estimates and log-likelihood
+  parsfit=matrix(NA,nrow=10,ncol=3)
+  loglfit=rep(NA,10)
+      
+  # main loop for parameter estimation using the bobyqa function from the nloptr package
+  for(i in 1:10){
+        
+      # in case of error for certain starting values, they are suppressed
+      try({
+        # minimization of minus the log likelihood
+        output=nloptr::bobyqa(x0=x0[i,],fn=dQBN,lower=lowerbounds,upper=upperbounds,nl.info=F,x=X,control = list(maxeval=50000,xtol_rel=10^-5))
+        i=i+1
+        
+        # optimal parameters and minus log-likelihood
+        parsfit[i,]=output$par
+        loglfit[i]=output$value
+      },silent=T)
+    }
+      
+  # returning best fit
+  indmin=which.min(loglfit)
+  bestpars=parsfit[indmin,]
+      
+  return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"LogLikelihood"=-loglfit[indmin]))
+}
+
+
+fitSALaD=function(X,symmetric=FALSE){
+  # function for fitting a quantile-based Laplace distribution to the data
+  # using maximum likelihood
+  
+  # X is a numeric vector containing the data
+  # symmetric is a logical indicating if symmetry is assumed or not (alpha=0.5)
+  
+  
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi)
+  if(symmetric==FALSE){
+    lowerbounds=c(0,-Inf,0)
+    upperbounds=c(1,Inf,Inf)
+  } else {
+    lowerbounds=c(0.5,-Inf,0)
+    upperbounds=c(0.5,Inf,Inf)
+  }
+  
+  # generate starting values
+  if(symmetric==FALSE){
+    startalpha=runif(10)
+  } else {
+    startalpha=rep(0.5,10)
+  }
+  startmu=runif(10,min=min(X),max=max(X))
+  startphi=runif(10,min=0,max=sd(X))
+  
+  # combine starting values in matrix
+  x0=cbind(startalpha,startmu,startphi)
+  
+  # holding vectors for parameter estimates and log-likelihood
+  parsfit=matrix(NA,nrow=10,ncol=3)
+  loglfit=rep(NA,10)
+  
+  # main loop for parameter estimation using the bobyqa function from the nloptr package
+  for(i in 1:10){
+      
+    # in case of error for certain starting values, they are suppressed
+    try({
+
+      # minimization of minus the log likelihood
+      output=bobyqa(x0=x0[i,],fn=dQBLa,lower=lowerbounds,upper=upperbounds,nl.info=F,x=X,control = list(maxeval=50000,xtol_rel=10^-5))
+      
+      # optimal parameters and minus log-likelihood
+      parsfit[i,]=output$par
+      loglfit[i]=output$value
+    },silent=T)
+  }
+    
+  # returning best fit
+  indmin=which.min(loglfit)
+  bestpars=parsfit[indmin,]
+    
+  return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"LogLikelihood"=-loglfit[indmin]))
+}
+  
+  
+fitSALoD=function(X,symmetric=FALSE){
+  # function for fitting a quantile-based logistic distribution to the data
+  # using maximum likelihood
+  
+  # X is a numeric vector containing the data
+  # symmetric is a logical indicating if symmetry is assumed or not (alpha=0.5)
+  
+  
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi)
+  if(symmetric==FALSE){
+    lowerbounds=c(0,-Inf,0)
+    upperbounds=c(1,Inf,Inf)
+  } else {
+    lowerbounds=c(0.5,-Inf,0)
+    upperbounds=c(0.5,Inf,Inf)
+  }
+  
+  # generate starting values
+  if(symmetric==FALSE){
+    startalpha=runif(10)
+  } else {
+    startalpha=rep(0.5,10)
+  }
+  startmu=runif(10,min=min(X),max=max(X))
+  startphi=runif(10,min=0,max=sd(X))
+  
+  # combine starting values in matrix
+  x0=cbind(startalpha,startmu,startphi)
+  
+  # holding vectors for parameter estimates and log-likelihood
+  parsfit=matrix(NA,nrow=10,ncol=3)
+  loglfit=rep(NA,10)
+  
+  # main loop for parameter estimation using the bobyqa function from the nloptr package
+  for(i in 1:10){
+    
+    # in case of error for certain starting values, they are suppressed
+    try({
+      
+      # minimization of minus the log likelihood
+      output=bobyqa(x0=x0[i,],fn=dQBLo,lower=lowerbounds,upper=upperbounds,nl.info=F,x=X,control = list(maxeval=50000,xtol_rel=10^-5))
+      
+      # optimal parameters and minus log-likelihood
+      parsfit[i,]=output$par
+      loglfit[i]=output$value
+    },silent=T)
+  }
+  
+  # returning best fit
+  indmin=which.min(loglfit)
+  bestpars=parsfit[indmin,]
+  
+  return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"LogLikelihood"=-loglfit[indmin]))
+}
+
+
+fitSATD=function(X,symmetric=FALSE){
+  # function for fitting a quantile-based student's t-distribution to the data
+  # using maximum likelihood
+  
+  # X is a numeric vector containing the data
+  # symmetric is a logical indicating if symmetry is assumed or not (alpha=0.5)
+  
+  
+  # upper and lower bounds for parameters in optimization (alpha,mu,phi)
+  if(symmetric==FALSE){
+    lowerbounds=c(0,-Inf,0,0)
+    upperbounds=c(1,Inf,Inf,1000)
+  } else {
+    lowerbounds=c(0.5,-Inf,0,0)
+    upperbounds=c(0.5,Inf,Inf,1000)
+  }
+  
+  
+  
+  # generate starting values
+  if(symmetric==FALSE){
+    startalpha=runif(10)
+  } else {
+    startalpha=rep(0.5,10)
+  }
+  startmu=runif(10,min=min(X),max=max(X))
+  startphi=runif(10,min=0,max=sd(X))
+  startnu=runif(10,min=2,max=200)
+  
+  # combine starting values in matrix
+  x0=cbind(startalpha,startmu,startphi,startnu)
+  
+  # holding vectors for parameter estimates and log-likelihood
+  parsfit=matrix(NA,nrow=10,ncol=4)
+  loglfit=rep(NA,10)
+  
+  # main loop for parameter estimation using the bobyqa function from the nloptr package
+  for(i in 1:10){
+    
+    # in case of error for certain starting values, they are suppressed
+    try({
+      
+      # minimization of minus the log likelihood
+      output=bobyqa(x0=x0[i,],fn=dQBT,lower=lowerbounds,upper=upperbounds,nl.info=F,x=X,control = list(maxeval=50000,xtol_rel=10^-5))
+      
+      # optimal parameters and minus log-likelihood
+      parsfit[i,]=output$par
+      loglfit[i]=output$value
+    },silent=T)
+  }
+  
+  # returning best fit
+  indmin=which.min(loglfit)
+  bestpars=parsfit[indmin,]
+  
+  return(list("alpha"=bestpars[1],"mu"=bestpars[2],"phi"=bestpars[3],"nu"=bestpars[4],"LogLikelihood"=-loglfit[indmin]))
+}
+
+
+
+
+### function for determining the best fitting quantile- ###
+### based marginal to fit a margin of the data          ###
+###########################################################
+
+marginfit=function(data,crit="AIC",all=F,symmetric=F){
+  # accepts a numeric vector as input which forms a single margin of the data on which 
+  # the model is fit. The best suited margin is determined from a list of 4 and based
+  # on either the correlation of a uniform QQ-plot (crit="QQ") of the fitted distribution
+  # or AIC/BIC (crit="AIC"/"BIC") or the best one according to the p-value of a Kolmogorov-
+  # Smirnov test. If all=T the criterion for all possibilities is returned so the user can 
+  # choose on his/her preference, otherwise only the best one toghether with the uniform 
+  # transformation of the data, the fitted parameters and the log-likelihood is returned
+  
+  
+  # length of data vector
+  n=length(data)
+  
+  # choices for margin functions
+  mf=c("normal","laplace","logistic","t")
+  
+  # fitting the the possible margins
+  fitN=fitSAND(data,symmetric=symmetric)
+  fitLa=fitSALaD(data,symmetric=symmetric)
+  fitLo=fitSALoD(data,symmetric=symmetric)
+  fitT=fitSATD(data,symmetric=symmetric)
+  
+  # uniform tranform (CDF values) of the data
+  U=matrix(NA,nrow=n,ncol=4)
+  U[,1]=QBAsyDist::pAND(q=data,mu=fitN$mu,phi=fitN$phi,alpha=fitN$alpha)
+  U[,2]=QBAsyDist::pALaD(q=data,mu=fitLa$mu,phi=fitLa$phi,alpha=fitLa$alpha)
+  U[,3]=QBAsyDist::pALoD(q=data,mu=fitLo$mu,phi=fitLo$phi,alpha=fitLo$alpha)
+  U[,4]=QBAsyDist::pATD(q=data,mu=fitT$mu,phi=fitT$phi,alpha=fitT$alpha,nu = fitT$nu)
+  
+  # fitted parameters
+  pars=matrix(NA,nrow=4,ncol=4)
+  rownames(pars)=c('alpha','mu','phi','nu')
+  pars[1:3,1]=c(fitN$alpha,fitN$mu,fitN$phi)
+  pars[1:3,2]=c(fitLa$alpha,fitLa$mu,fitLa$phi)
+  pars[1:3,3]=c(fitLo$alpha,fitLo$mu,fitLo$phi)
+  pars[1:4,4]=c(fitT$alpha,fitT$mu,fitT$phi,fitT$nu)
+  
+  # log-likelihood
+  logl=rep(NA,4)
+  logl[1]=fitN$LogLikelihood
+  logl[2]=fitLa$LogLikelihood
+  logl[3]=fitLo$LogLikelihood
+  logl[4]=fitT$LogLikelihood
+  
+  if(crit=="AIC"){
+    
+    AICfit=-2*c(fitN$LogLikelihood,fitLa$LogLikelihood,fitLo$LogLikelihood,fitT$LogLikelihood)+2*c(3,3,3,4)
+    if(all==T){
+      
+      return(cbind("margin"=mf,"AIC"=AICfit,"parameters"=t(pars)))
+      
+    } else {
+      
+      return(list("margin"=mf[which.min(AICfit)],
+                  "U"=U[,which.min(AICfit)],
+                  "parameters"=pars[,which.min(AICfit)],
+                  "logl"=logl[which.min(AICfit)]))
+      
+    }
+    
+  } else if(crit=="BIC"){
+    
+    BICfit=-2*c(fitN$LogLikelihood,fitLa$LogLikelihood,fitLo$LogLikelihood,fitT$LogLikelihood)+log(n)*c(3,3,3,4)
+    
+    if(all==T){
+      
+      return(cbind("margin"=mf,"BIC"=BICfit,"parameters"=t(pars)))
+      
+    } else {
+      
+      return(list("margin"=mf[which.min(BICfit)],
+                  "U"=U[,which.min(BICfit)],
+                  "parameters"=pars[,which.min(BICfit)],
+                  "logl"=logl[which.min(BICfit)]))
+      
+    }
+    
+    
+  } else if(crit=="QQ"){
+    
+    corfit=c(
+      cor(seq(1/(n+1),n/(n+1),length.out=n),sort(U[,1])),
+      cor(seq(1/(n+1),n/(n+1),length.out=n),sort(U[,2])),
+      cor(seq(1/(n+1),n/(n+1),length.out=n),sort(U[,3])),
+      cor(seq(1/(n+1),n/(n+1),length.out=n),sort(U[,4]))
+    )
+    
+    if(all==T){
+      
+      return(cbind("margin"=mf,"Correlation QQ-plot"=corfit,"parameters"=t(pars)))
+      
+    } else {
+      
+      return(list("margin"=mf[which.max(corfit)],
+                  "U"=U[,which.max(corfit)],
+                  "parameters"=pars[,which.max(corfit)],
+                  "logl"=logl[which.max(corfit)]))
+      
+    }
+    
+  } else if(crit=="KS"){
+    
+    suppressWarnings({
+      pvalue=c(ks.test(data,pAND,mu=fitN$mu,phi=fitN$phi,alpha=fitN$alpha)$p.value,
+               ks.test(data,pALaD,mu=fitLa$mu,phi=fitLa$phi,alpha=fitLa$alpha)$p.value,
+               ks.test(data,pALoD,mu=fitLo$mu,phi=fitLo$phi,alpha=fitLo$alpha)$p.value,
+               ks.test(data,pATD,mu=fitT$mu,phi=fitT$phi,alpha=fitT$alpha,nu = fitT$nu)$p.value
+      )})
+    
+    if(all==T){
+      
+      return(cbind("margin"=mf,"KS-test p-value"=pvalue,"parameters"=t(pars)))
+      
+    } else {
+      
+      return(list("margin"=mf[which.max(pvalue)],
+                  "U"=U[,which.max(pvalue)],
+                  "parameters"=pars[,which.max(pvalue)],
+                  "logl"=logl[which.max(pvalue)]))
+      
+    }
+  } else {
+    
+    stop("invalid criterion")
+    
+  }
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### function for fitting the linear combination of symmetric random variables ###
+#################################################################################
+fitLCS=function(data,basefunc,symmetric=FALSE,seed=NULL,maxiter=10^6,tol=10^-5,numstarts=20,start=NULL){
+  # function for parameter estimation in a Multivariate Quantile Based Asymmetric Family of Distributions
+  # model
+  
+  # data is a nxd-matrix which contains n-observations of d-variate points which form the data
+  
+  # basefunc is a vector  of length d which containing the names of univariate functions which 
+  # are linearly combined to form the data. choises are "normal", "laplace", "logistic" or "t"
+  
+  # seed is a numeric seed to ensure consistent results on the same data
+  
+  # maxiter is a numeric value for the underlying optimizer which sets the maximum number of iterations
+  # for the optimizer
+  
+  # tol is a numeric value for the underlying optimizer which sets the relative accuracy of the 
+  # optimization step
+  
+  # numstarts is a numeric value which determines the number of different starting points for the optimizer
+  
+  # symmetric is a logical whether symmetry is assumed or not (this sets alll skewing parameters equal to 0.5)
+  
+  # start is an optional matrix of starting values for the parameter
+  
+  
+  X=as.matrix(na.omit(data))
+  
+  # dimensions of X
+  n=length(X[,1])
+  d=length(X[1,])
+  
+  # check if correct number of base functions is supplied
+  if(length(basefunc)!=d){
+    stop("incorrect number of base functions supplied")
+  }
+  
+  # check if basefunctions are ok
+  possibilities=c("t","normal","logistic","laplace")
+  test=!is.element(basefunc,possibilities)
+  if(sum(test)>0){
+    stop("incorrect basis function detected")
+  }
+  
+  # generate starting values
+  if(!is.null(seed)){
+    set.seed(seed)
+  } else {
+    seed=sample(1:10^6,1)
+    set.seed(seed)
+  }
+  
+  # lower bounds for parameters in optimization
+  lowermu=apply(X,2,min)
+  lowerA=matrix(-sqrt(max(var(X))),nrow=d,ncol=d)
+  lowerbounds=as.vector(cbind(lowermu,lowerA))
+  
+  # upper bounds for parameters in optimization
+  uppermu=apply(X,2,max)
+  upperA=matrix(sqrt(max(var(X))),nrow=d,ncol=d)
+  upperbounds=as.vector(cbind(uppermu,upperA))
+  
+  if(is.null(start)){
+    # for mu
+    startmu=matrix(runif(d*numstarts,apply(X,2,min),apply(X,2,max)),nrow=numstarts,ncol=d,byrow=T)
+    # for A 
+    startA=matrix(runif(numstarts*d^2,min=-sqrt(max(var(X))),max=sqrt(max(var(X)))),nrow=numstarts,ncol=d^2,byrow=T)
+  
+    if(symmetric==T){
+      alpha=rep(0.5,d)
+    
+      # combine starting values in matrix
+      x0=cbind(startmu,startA)
+      
+    } else {
+      loweralpha=rep(0.1,d)
+      lowerbounds=as.vector(c(loweralpha,lowerbounds))
+      upperalpha=rep(0.9,d)
+      upperbounds=as.vector(c(upperalpha,upperbounds))
+    
+      # starting values for alpha
+      startalpha=matrix(runif(d*numstarts,min = 0.2,max = 0.8),nrow=numstarts,ncol=d,byrow=T)
+      
+      # combine starting values in matrix
+      x0=cbind(startalpha,startmu,startA)
+    }
+    
+    if(is.element("t",basefunc)){
+      
+      # which basis functions are t-distributed
+      indt=which(basefunc=="t")
+      ldf=length(indt)
+      
+      # generate starting values for degrees of freedom as well as bounds
+      lowerdf=rep(1,ldf)
+      upperdf=rep(10000,ldf)
+      startdf=matrix(runif(numstarts*ldf,min=2,max=100),ncol=ldf,nrow=numstarts,byrow=T)
+      
+      # pasting these to other starting values
+      x0=cbind(x0,startdf)
+      lowerbounds=c(lowerbounds,lowerdf)
+      upperbounds=c(upperbounds,upperdf)
+      
+    } else {
+      # in case no t-distribution is present
+      indt=NULL
+    }
+  } else {
+    
+    x0=start
+
+    if(symmetric==F){
+      lowerbounds=as.vector(c(loweralpha,lowerbounds))
+      upperbounds=as.vector(c(upperalpha,upperbounds))
+    }
+    
+    if(is.element("t",basefunc)){
+      
+      # which basis functions are t-distributed
+      indt=which(basefunc=="t")
+      ldf=length(indt)
+      
+      # generate starting values for degrees of freedom as well as bounds
+      lowerdf=rep(1,ldf)
+      upperdf=rep(10000,ldf)
+      
+      lowerbounds=c(lowerbounds,lowerdf)
+      upperbounds=c(upperbounds,upperdf)
+      
+    } else {
+      # in case no t-distribution is present
+      indt=NULL
+    }
+    
+    checkL=sweep(x = start,MARGIN = 2,STATS = lowerbounds,FUN = "-")
+    checkU=sweep(x = start,MARGIN = 2,STATS = upperbounds,FUN = "-")
+    if(sum(checkL<0)>0 | sum(checkU>0)>0){
+      stop("Starting values not in plausible range")
+    }
+  }
+  
+  M=ncol(x0)
+  if(length(upperbounds)!=M){
+    stop("Incorrect number of parameter values provided in starting values")
+  }
+  
+  
+  # holding matrix for best found parameters (one row is one set)
+  paramsfit=data.frame(matrix(NA,ncol=M,nrow=numstarts))
+  a=intToUtf8(945)
+  m=intToUtf8(956) # character for mu
+  if(symmetric==T){
+    if(is.null(indt)){
+      colnames(paramsfit)=c(paste0(m,1:d),paste0("A",apply(expand.grid(1:d, 1:d), 1, paste, collapse="")))
+    } else {
+      colnames(paramsfit)=c(paste0(m,1:d),paste0("A",apply(expand.grid(1:d, 1:d), 1, paste, collapse="")),paste0("df",indt))
+    }
+  } else {
+    if(is.null(indt)){
+      colnames(paramsfit)=c(paste0(a,1:d),paste0(m,1:d),paste0("A",apply(expand.grid(1:d, 1:d), 1, paste, collapse="")))
+    } else {
+      colnames(paramsfit)=c(paste0(a,1:d),paste0(m,1:d),paste0("A",apply(expand.grid(1:d, 1:d), 1, paste, collapse="")),paste0("df",indt))
+    }
+  }
+  
+  
+  
+  # vector with log-likelihood in found optimum 
+  loglfit=rep(NA,numstarts)
+  
+  
+  # main loop for parameter estimation with symmetry assumed
+  for(i in 1:numstarts){
+      
+    try({
+      # set seed
+      set.seed(seed+i)
+      # starting values for parameters
+      parstart=x0[i,]
+        
+      # optimization
+      output=bobyqa(x0 = parstart,fn = opt_funLCS,lower=lowerbounds,upper=upperbounds,X=X,basefunc=basefunc,indt=indt,symmetric=symmetric,control = list(maxeval=120000))
+      paramsfit[i,]=output$par
+      loglfit[i]=output$value
+    },silent=T)
+  }
+  
+  # only return starting value which provides best fit (lowest minus log-likelihood)
+  indmin=which.min(loglfit)
+  loglfit=-loglfit[indmin]
+  
+  if(symmetric==T){  
+    paramsfit=c(rep(0.5,d),unlist(paramsfit[indmin,]))
+    names(paramsfit)[1:d]=paste0(a,1:d)
+  } else {
+    paramsfit=paramsfit[indmin,]
+  }
+  
+  return(list("fitted parameters"=paramsfit,"log likelihood fit"=loglfit))
+}
+
+
+
+# minus log-likelihood function which is to be minimized for symmetric components
+opt_funLCS=function(parms,X,basefunc,symmetric=TRUE,indt=NULL){
+  # parms is a vector containing the parameter values. In order these are: alpha, mu, A (by column) and 
+  # possibly degrees of freedom for student-t distributions. 
+  
+  # X is a nxd matrix containing the data
+  
+  # basefunc is a vector  of length d which containing the names of univariate functions which 
+  # are linearly combined to form the data. choices are "normal", "laplace", "logistic" or "t". 
+  # indices of t-distributions within this vector are supplied via indt. This is used to generate
+  # a vector of length d which contains the degrees of freedom with the corresponding t-distribution in
+  # in basefunc
+  
+  # if symmetric=TRUE, alpha is not estimated and assumed to be 0.5
+  # otherwise, alpha is contained as the first d elements of parms
+  
+  # dimensions
+  n=length(X[,1])
+  d=length(X[1,])
+  
+  # parameter values
+  if(symmetric==TRUE){
+    # regular parameters
+    alpha=rep(0.5,d)
+    mu=parms[1:d]
+    A=matrix(parms[(d+1):(d^2+d)],nrow=d)
+    
+    # degrees of freedom
+    if(!is.null(indt)){
+      tpars=rep(NA,d)
+      tpars[indt]=parms[(d^2+d+1):(d^2+d+length(indt))]
+    }
+  } else {
+    # regular parameters
+    alpha=parms[1:d]
+    mu=parms[(d+1):(2*d)]
+    A=matrix(parms[(2*d+1):(d^2+2*d)],nrow=d)
+    
+    # creating vector with degrees of freedom
+    if(!is.null(indt)){
+      tpars=rep(NA,d)
+      tpars[indt]=parms[(d^2+2*d+1):(d^2+2*d+length(indt))]
+    }
+  }
+  B=solve(A)
+  
+  
+  
+  # X*A^{-1}
+  V=X%*%B
+  # mu*A^{-1}
+  VV=mu%*%B
+  
+  # calculation of minus log-likelihood, max ensures that no inf's of NA's are produced
+  value=-n*log(abs(det(B)))
+  for(i in 1:d){
+    if(basefunc[i]=="laplace"){
+      value=value-sum(log(twopiecelaplacedensity(V[,i]-VV[i],alpha[i])))
+    } else if(basefunc[i]=="normal"){
+      value=value-sum(log(twopiecenormaldensity(V[,i]-VV[i],alpha[i])))
+    } else if(basefunc[i]=="logistic"){
+      value=value-sum(log(twopiecelogisticdensity(V[,i]-VV[i],alpha[i])))
+    } else {
+      value=value-sum(log(twopiecestudentdensity(V[,i]-VV[i],alpha[i],nu=tpars[i])))
+    }
+  }
+  
+  return(value)
+}
+
+
+
+
+
+
+### function for fitting a central symmmetry constrained non-parametric (KDE) ###
+### density estimator to (non-) centrally symmetric data                      ###
+#################################################################################
+
+fitNP=function(X,symmetric=TRUE,ub=NULL,lb=NULL,IF=2,GP=100){
+  
+  # fit a KDE to X over the range lb-ub
+  # only works up to 6 dimensions
+  
+  # X: nxd matrix containing the observation in the rows
+  # symmetric: logical, should symmetry be assumed or not
+  # lb, ub: d-vector with lower bounds for the domain of the kde
+  # IF: positive real number for the inflation of the bandwidth matrix of the KDE
+  # GP: positive number for the gridpoints on one dimension for the KDE 
+  
+  # dimensions and data domain
+  n <- nrow(X)
+  d <- ncol(X)
+  ranges <- apply(X,2,range)
+  
+  # checks and domain
+  if(d>6){
+    stop("Dimensions too high")
+  }
+  # 30% wider than original range of data 
+  if(is.null(lb)){
+    lb <- 1.3*ranges[1,]-0.3*ranges[2,] 
+  }
+  if(is.null(ub)){
+    ub <- 1.3*ranges[2,]-0.3*ranges[1,]
+  }
+  
+  # fitting the KDE
+  if(symmetric==FALSE){
+    fitReg <- kde(x = X,gridsize = GP,H = IF*Hpi(X),xmin = lb,xmax = ub,eval.points = X)
+    logl <- sum(log(fitReg$estimate))
+    return(list("dens"=fitReg$estimate,"bw"=fitReg$H,"ll"=logl))
+  } else {
+    fitPrim <- kde(x = X,gridsize = GP,H = IF*Hpi(X),xmin = lb,xmax = ub)
+    theta.ind <- which(fitPrim$estimate == max(fitPrim$estimate),arr.ind = T)
+    theta <- rep(NA,d)
+    for(j in 1:d){
+      theta[j] <- fitPrim$eval.points[[j]][theta.ind[j]]
+    }
+
+    Xsym <- sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+")
+    Xaug <- rbind(X,Xsym)
+    
+    fitSym <- kde(x = Xaug,H = IF*Hpi(X),xmin = lb,xmax = ub,eval.points = X)
+    logl <- sum(log(fitSym$estimate))
+    return(list("dens"=fitSym$estimate,"bw"=fitSym$H,"ll"=logl))
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
