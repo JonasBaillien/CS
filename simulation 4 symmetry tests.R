@@ -4,13 +4,7 @@
 # try different settings
 
 
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-source("C:/Users/u0125240/Documents/PhD/code/lineaire combinatie/Code part 1 Functions.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitPcopula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitSPcopula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+source("~/functions.R)
 
 library(copula)
 library(ks)
@@ -43,7 +37,7 @@ N <- 100
 
 
 # create folder to store output in
-dir.create(paste0("~/PhD/code/symmetry/output/simulation4"))
+dir.create(paste0("~/simulation4"))
 
 
 #######################################################################
@@ -65,15 +59,14 @@ c <- 1 # dai (2018)
 modelsettings <- list("seed"=seed,"d"=d,"sampsize"=n,
                       "copulaskew"=alpha.c,"copulacor"=rho.c,"N"=N,
                       "nstart"=nstart,"GP"=GP,"IF"=IF,"a"=a,"b"=b,"c"=c)
-save(modelsettings,file=paste0("~/PhD/code/symmetry/output/simulation4/modelsettings.Rdata"))
+save(modelsettings,file=paste0("~/simulation4/modelsettings.Rdata"))
 
 # creating directories to save output
-dir.create("~/PhD/code/symmetry/output/simulation4/teststatsP_UM")
-dir.create("~/PhD/code/symmetry/output/simulation4/teststatsP")
-dir.create("~/PhD/code/symmetry/output/simulation4/teststatsSP")
-# dir.create("~/PhD/code/symmetry/output/simulation4/teststatsSPS")
-dir.create("~/PhD/code/symmetry/output/simulation4/teststatsNP")
-dir.create("~/PhD/code/symmetry/output/simulation4/data")
+dir.create("~/simulation4/teststatsP_UM")
+dir.create("~/simulation4/teststatsP")
+dir.create("~/simulation4/teststatsSP")
+dir.create("~/simulation4/teststatsNP")
+dir.create("~/simulation4/data")
 
 
 start.t=Sys.time()
@@ -85,15 +78,8 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                .combine = "cbind",.verbose = T,.errorhandling="remove") %dopar% {
                  
                  ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/lineaire combinatie/Code part 1 Functions.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitSPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitUVSN.R")
-                 
+                 source("~/functions.R")
+                
                  
                  ### data generation and saving for reference
                  # creating pseudo-observations
@@ -102,7 +88,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  # creating margins
                  X <- qchisq(p = U,df = 3)-1
                  dat <- list("U"=U,"X"=X)
-                 save(dat,file = paste0("~/PhD/code/symmetry/output/simulation4/data/run",q,".Rdata"))
+                 save(dat,file = paste0("~/simulation4/data/run",q,".Rdata"))
                  
                  
                  
@@ -141,7 +127,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  parametric_um <- list("MPSym"=MPSym,"fitSym"=fitSym.P.c,
                                     "MPReg"=MPReg,"fitReg"=fitReg.P.c,
                                     "TS"=W.P_um)
-                 save(parametric_um,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsP_UM/run",q,".Rdata"))
+                 save(parametric_um,file=paste0("~/simulation4/teststatsP_UM/run",q,".Rdata"))
 
                  
                  ### parametric fit assuming margins are fully known, including 
@@ -156,7 +142,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                    # output
                    parametric <- list("fitSym"=fitSym.P,"fitReg"=fitReg.P,
                                       "TS"=W.P)
-                   save(parametric,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsP/run",q,".Rdata"))
+                   save(parametric,file=paste0("~/simulation4/teststatsP/run",q,".Rdata"))
                  },silent=TRUE)
                  
                  
@@ -185,7 +171,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                    # output
                    semiparametric <- list("fitSym"=fitSym.SP,"fitReg"=fitReg.SP,
                                           "TS"=W.SP)
-                   save(semiparametric,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsSP/run",q,".Rdata"))
+                   save(semiparametric,file=paste0("~/simulation4/teststatsSP/run",q,".Rdata"))
                    
                    
                    # symmetric fitting without assumed symmetric margins
@@ -197,7 +183,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                    # output
                    # semiparametric2 <- list("fitSym"=fitSym.SPS,"fitReg"=fitReg.SP,
                    #                         "TS"=W.SPS)
-                   # save(semiparametric2,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsSPS/run",q,".Rdata"))
+                   # save(semiparametric2,file=paste0("~/simulation4/teststatsSPS/run",q,".Rdata"))
                  },silent=T)
                  
                  
@@ -229,21 +215,12 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                    # output
                    nonparametric <- list("bw"= fitSym.NP$bw,"LRTNP"=W.NP,
                                          "DHS"=W.DHS,"DR"=W.DR,"XAug"=XAug)
-                   save(nonparametric,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsNP/run",q,".Rdata"))
+                   save(nonparametric,file=paste0("~/simulation4/teststatsNP/run",q,".Rdata"))
                  },silent=T)
                }
 stopCluster(cl)
 end.t <- Sys.time()
 time.takensim <- difftime(end.t,start.t,units = "secs")
-
-x11()
-
-
-
-
-
-
-
 
 
 
@@ -258,7 +235,7 @@ x11()
 NN <- 400
 
 # load in settings
-load(paste0("~/PhD/code/symmetry/output/simulation4/modelsettings.Rdata")) # name modelsettings
+load(paste0("~/simulation4/modelsettings.Rdata")) # name modelsettings
 
 # dimension and sample size
 n <- modelsettings$sampsize
@@ -286,7 +263,7 @@ c <- modelsettings$c # Szekely (2001)
 
 # save new settings
 modelsettings["NN"] <- NN
-save(modelsettings,file = paste0("~/PhD/code/symmetry/output/simulation4/modelsettingsAsyDist.Rdata"))
+save(modelsettings,file = paste0("~/simulation4/modelsettingsAsyDist.Rdata"))
 
 
 ### non-parametric GLRT and reference tests
@@ -300,15 +277,14 @@ NPR <- foreach(q=10:N,.packages=c('sn','ks','copula','nloptr'),
                  set.seed(130522+q)
                  
                  ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+                 source("~/functions.R")
                  
                  # load in the original dataset
-                 load(paste0("~/PhD/code/symmetry/output/simulation4/data/run",q,".Rdata"))
+                 load(paste0("~/simulation4/data/run",q,".Rdata"))
                  X <- dat$X
                  
                  # load in the estimates
-                 load(paste0("~/PhD/code/symmetry/output/simulation4/teststatsNP/run",q,".Rdata"))
+                 load(paste0("~/simulation4/teststatsNP/run",q,".Rdata"))
                  bw <- nonparametric$bw 
                  XAug <- nonparametric$XAug
                  
@@ -342,7 +318,7 @@ NPR <- foreach(q=10:N,.packages=c('sn','ks','copula','nloptr'),
                  }         
                  # output
                  TSDist <- list("LRTNP"=W.NP,"DHS"=W.DHS,"DR"=W.DR)          
-                 save(TSDist,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsNP/TSDistRun",q,".Rdata"))
+                 save(TSDist,file=paste0("~/simulation4/teststatsNP/TSDistRun",q,".Rdata"))
                  }
 stopCluster(cl)
 end.t <- Sys.time()
@@ -363,10 +339,10 @@ x11()
 #                  set.seed(27422+q)
 #                  
 #                  ### required files:
-#                  source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
+#                  source("~/functions.R")
 #                  
 #                  # load in the estimates
-#                  load(paste0("~/PhD/code/symmetry/output/simulation4/teststatsSPS/run",q,".Rdata"))
+#                  load(paste0("~/simulation4/teststatsSPS/run",q,".Rdata"))
 #                  parsym <- semiparametric2$fitSym$par
 #                  
 #                  
@@ -401,7 +377,7 @@ x11()
 #                  }         
 #                  # output
 #                  TSDist <- list("LRTSPS"=W.SPS)          
-#                  save(TSDist,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsSPS/TSDistRun",q,".Rdata"))
+#                  save(TSDist,file=paste0("~/simulation4/teststatsSPS/TSDistRun",q,".Rdata"))
 #                }
 # stopCluster(cl)
 # end.t <- Sys.time()
@@ -420,12 +396,11 @@ PR <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  set.seed(27422+q)
                  
                  ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitUVSN.R")
+                 source("~/functions.R")
                  
                  
                  # load in the estimates
-                 load(paste0("~/PhD/code/symmetry/output/simulation4/teststatsP_UM/run",q,".Rdata"))
+                 load(paste0("~/simulation4/teststatsP_UM/run",q,".Rdata"))
                  parCsym <- parametric_um$fitSym$par
                  parMsym <- parametric_um$MPSym
                  
@@ -471,10 +446,8 @@ PR <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  }         
                  # output
                  TSDist <- list("LRTP"=W.P_um)          
-                 save(TSDist,file=paste0("~/PhD/code/symmetry/output/simulation4/teststatsP_UM/TSDistRun",q,".Rdata"))
+                 save(TSDist,file=paste0("~/simulation4/teststatsP_UM/TSDistRun",q,".Rdata"))
                }
 stopCluster(cl)
 end.t <- Sys.time()
 time.takenstats <- difftime(end.t,start.t,units = "secs")
-
-x11()
