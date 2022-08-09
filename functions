@@ -15,6 +15,10 @@ library(sn)
 library(ks)
 library(nloptr)
 library(copula)
+library(MTS)
+library(geometry)
+library(mrfDepth)
+library(mvtnorm)
 
 
 ### working directory ###
@@ -1337,6 +1341,802 @@ fitNP=function(X,symmetric=TRUE,ub=NULL,lb=NULL,IF=2,GP=100){
     return(list("dens"=fitSym$estimate,"bw"=fitSym$H,"ll"=logl))
   }
 }
+
+
+
+
+
+### function for fitting a central symmetry constrained copula ###   
+###   with non-parametric margins                              ###
+##################################################################
+
+fitSPcopula=function(X,cop,theta=NULL,theta.method="median",bw=NULL,symmetric=FALSE){
+  
+  # function for semi-parametric fit of a (symmetric) copula to data
+  
+  # X is a nxd-matrix which contains n-observations of d-variate points which form the data
+  
+  # cop is an object of the copula-class. Since possible symmetry is required, options are
+  # Frank (d=2) and Farlie-Gumbel-Morgenstern (d=2) elliptical copulas
+  
+  # theta is a d-vector containing the points of symmetry. if NULL, theta.method 
+  # is used to find an estimate. Default is "median", other options are "mode" 
+  # (in case unimodal) or "mean" (less robust)
+  
+  # bw is a d-vector containing the bandwidth for each margin. Only used when 
+  # theta.method="mode" Default is NULL, in that case the nrd0-bandwidth is used
+  
+  # symmetric is a logical whether symmetry is assumed or not (this only has effect
+  # on the estimation of the margins) if TRUE, the pseudo observations are generated
+  # as the CDF they have if the data and the reflected data are combined (and thus the 
+  # data itself is symmetric around theta)
+
+  X=as.matrix(na.omit(X))
+  
+  n=nrow(X)
+  d=ncol(X)
+  
+  # check for correct copula object
+  check.cop=
+  if(d==2){
+    if(class(cop)!="frankCopula" & !is(cop,"ellipCopula") & class(cop)!="fgmCopula"){
+      stop("Invalid copula object provided")
+    }
+  } else {
+    if(!is(cop,"ellipCopula")){
+      stop("Invalid copula object provided")
+    }
+  }
+  
+  # determine point of symmetry theta
+  if(is.null(theta)){
+    if(is.element(theta.method,c("median","mean","mode"))){
+      if(theta.method=="median"){
+        theta=apply(X,2,median)
+      } else if(theta.method=="mean"){
+        theta=apply(X,2,mean)
+      } else {
+  
+        # set bandwidth vector
+        if(is.null(bw)){
+          bw=apply(X,2,nrd0)
+        } else {
+          if(length(bw)!=d){
+            stop("Incorrect length of bandwidth matrix provided")
+          }
+        }
+        
+        theta=rep(NA,d)
+        for(i in 1:d){
+          y=density(x = X[,i],bw=bw[i])
+          theta[i]=y$x[which.max(y$y)]
+        }
+
+      }
+    } else {
+      stop("Invalid theta.method provided")
+    }
+    
+  } else {
+    if(length(theta)!=d){
+      stop("Length of theta does not match dimension")
+    }
+  }
+  
+  # generating pseudo observations
+  if(symmetric==FALSE){
+    U=pobs(X)
+  } else {
+    Xm=sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+")
+    U=pobs(rbind(X,Xm))[1:n,]
+  }
+  
+  # fitting copula to pseudo observations
+  fit=fitCopula(copula = cop,data = U)
+  
+  
+  return(fit)
+}
+
+
+
+
+
+
+
+
+
+
+
+### random sample from skew-normal copula ###
+#############################################
+
+rSNcopula=function(n,alpha,rho){
+  
+  # we assume Omega_bar=Omega
+  
+  # n: sample size
+  
+  ### multivariate sn parameters:
+  # alpha: d vector with skewing parameters of multivariate skew-normal 
+  # rho: d*(d-1)/2 vector with correlations of multivariate skew-normal
+  #      ordered by column (rho_{2,1},rho_{3,1,..,rho_{d,1},rho_{3,2},..,rho_{d,d-1}
+  
+  # dimensions
+  d=length(alpha)
+
+  # construct correlation matrix of multivariate skew-normal
+  Omega=diag(d)
+  Omega[upper.tri(Omega)] <- Omega[lower.tri(Omega)] <- rho
+
+  # # calculate delta from alpha and Omega
+  # delta = Omega%*%alpha%*%(1+t(alpha)%*%Omega%*%alpha)^{-1/2}
+  
+  # generate sample from multivariate skew-normal
+  x=rmsn(n = n,Omega = Omega,alpha = alpha)
+  
+  # calculation of marginal skewness parameters according to 
+  # Azzalini & Capitanio 2014 chapter 5
+  lambda=rep(NA,d)
+  for(i in 1:d){
+    # Omega1=1 because of diagonal element of correlation matrix
+    Omega2=Omega[-i,-i]
+    Omega12=matrix(Omega[i,-i],nrow=1)
+    Omega221=Omega2-t(Omega12)%*%Omega12
+    
+    alpha1=alpha[i]
+    alpha2=matrix(alpha[-i],ncol=1)
+    
+    lambda[i]=(1+t(alpha2)%*%Omega221%*%alpha2)^{-1/2}*(alpha1+Omega12%*%alpha2)
+  }
+  
+  # calculate pseudo-observations
+  u=matrix(NA,nrow=n,ncol=d)
+  for(i in 1:d){
+    u[,i]=psn(x = x[,i],omega = Omega[i,i],alpha = lambda[i])
+  }
+  
+  return(u)
+}
+
+
+
+
+### Skew-normal copula distribution ###
+#######################################
+
+pSNcopula=function(u,alpha,rho,log=FALSE){
+  # u: nxd matrix containing pseudo observations (in [0,1])
+  # alpha: d vector containing multivariate skewing parameters
+  # rho: d*(d-1) vector containing correlation of multivariate skew normal 
+  #      distribution by column. 
+  # log: should log density be returned or not
+  
+  n=nrow(u)
+  d=ncol(u)
+  
+  # construct correlation matrix
+  Omega=diag(d)
+  Omega[upper.tri(Omega)] <- Omega[lower.tri(Omega)] <- rho
+  
+  # # calculate delta from alpha and Omega
+  # delta = Omega%*%alpha%*%(1+t(alpha)%*%Omega%*%alpha)^{-1/2}
+  
+  # calculation of marginal skewness parameters according to 
+  # Azzalini & Capitanio 2014 chapter 5
+  lambda=rep(NA,d)
+  for(i in 1:d){
+    # Omega1=1 because of diagonal element of correlation matrix
+    Omega2=Omega[-i,-i]
+    Omega12=matrix(Omega[i,-i],nrow=1)
+    Omega221=Omega2-t(Omega12)%*%Omega12
+    
+    alpha1=alpha[i]
+    alpha2=matrix(alpha[-i],ncol=1)
+    
+    lambda[i]=(1+t(alpha2)%*%Omega221%*%alpha2)^{-1/2}*(alpha1+Omega12%*%alpha2)
+  }
+  
+  # skew-normal quantile function evaluated in u (F^-1(u)) and
+  # skew-normal distribution evaluated in skew-normal quantile in u (f(F^-1(u)))
+  Finv=matrix(NA,nrow = n,ncol = d)
+  for(i in 1:d){
+    Finv[,i]=qsn(p = u[,i],omega = Omega[i,i],alpha = lambda[i])
+  }
+  
+  # calculate density of multivariate skew-normal copula
+  prob=pmsn(x = Finv,Omega = Omega,alpha = alpha)
+  
+  return(prob)
+  
+}
+
+
+
+
+
+### Skew-normal copula density ###
+##################################
+
+dSNcopula=function(u,alpha,rho,log=FALSE){
+  # u: nxd matrix containing pseudo observations (in [0,1])
+  # alpha: d vector containing multivariate skewing parameters
+  # rho: d*(d-1) vector containing correlation of multivariate skew normal 
+  #      distribution by column. 
+  # log: should log density be returned or not
+  
+  n=nrow(u)
+  d=ncol(u)
+  
+  # construct correlation matrix
+  Omega <- diag(x = 1/2,nrow = d)
+  Omega[lower.tri(Omega)] <- rho
+  Omega <- Omega + t(Omega)
+  
+  # # calculate delta from alpha and Omega
+  # delta = Omega%*%alpha%*%(1+t(alpha)%*%Omega%*%alpha)^{-1/2}
+  
+  # calculation of marginal skewness parameters according to 
+  # Azzalini & Capitanio 2014 chapter 5
+  lambda=rep(NA,d)
+  for(i in 1:d){
+    # Omega1=1 because of diagonal element of correlation matrix
+    Omega2=Omega[-i,-i]
+    Omega12=matrix(Omega[i,-i],nrow=1)
+    Omega221=Omega2-t(Omega12)%*%Omega12
+    
+    alpha1=alpha[i]
+    alpha2=matrix(alpha[-i],ncol=1)
+    
+    lambda[i]=(1+t(alpha2)%*%Omega221%*%alpha2)^{-1/2}*(alpha1+Omega12%*%alpha2)
+  }
+  
+  # skew-normal quantile function evaluated in u (F^-1(u)) and
+  # skew-normal density evaluated in skew-normal quantile in u (f(F^-1(u)))
+  Finv=matrix(NA,nrow = n,ncol = d)
+  dn=matrix(NA,nrow = n,ncol = d)
+  for(i in 1:d){
+    Finv[,i]=qsn(p = u[,i],omega = Omega[i,i],alpha = lambda[i],engine="biv.nt.prob")
+    dn[,i]=dsn(x = Finv[,i],omega = Omega[i,i],alpha = lambda[i])
+  }
+  
+  # calculate density of multivariate skew-normal copula
+  dens=dmsn(x = Finv,Omega = Omega,alpha = alpha)/apply(dn,1,prod)
+  
+  if(log==TRUE){
+    return(log(dens))
+  } else {
+    return(dens)
+  }
+  
+}
+
+
+
+
+### Maximum-likelihood fit of skew-normal copula on pseudo-observations ###
+###########################################################################
+
+# negative log likelihood function
+mll=function(param,u){
+  d=ncol(u)
+  alpha=param[1:d]
+  rho=param[(d+1):(d*(d+1)/2)]
+  logl=dSNcopula(u = u,alpha = alpha,rho = rho,log = TRUE)
+  
+  return(-sum(logl))
+}
+
+# negative log likelihood function for symmetric model
+mllSym=function(rho,u){
+  d=ncol(u)
+  logl=dSNcopula(u = u,alpha = rep(0,d),rho = rho,log = TRUE)
+  
+  return(-sum(logl))
+}
+
+fitSNcopula=function(u,symmetric=FALSE,start=NULL,nstart=1,random=FALSE,...){
+
+  # u: a nxd matrix containing the pseudo-observations (in [0,1])
+
+  # symmetric: logical, should symmetry be assumed (alpha=0)
+
+  # start: kx(d*(d+1)/2) matrix containing starting values for the parameters
+
+  # nstart: if start is not provided, nstart random starting values are
+  # generated in a plausible range. Defaults to 1
+
+  # ...: options for the optimizer
+
+  n=nrow(u)
+  d=ncol(u)
+
+  if(symmetric==TRUE){
+
+    # starting values for minimizing negative log-likelihood
+    if(is.null(start)){
+      start=matrix(runif(n = nstart*(d*(d-1)/2),min = -0.25,max = 0.25),nrow = nstart,ncol=d*(d-1)/2)
+    } else {
+      nstart=nrow(start)
+    }
+
+    # lower and upper bounds for parameters
+    lower=c(rep(-0.99,d*(d-1)/2))
+    upper=c(rep(0.99,d*(d-1)/2))
+
+    # minimizing the log-likelihood
+    fits=vector(mode = "list", length = nstart)
+    logl=rep(NA,nstart)
+    for(i in 1:nstart){
+      try({
+        fit=optim(par = start[i,],fn = mllSym,method="L-BFGS-B",lower = lower,upper = upper,
+                  u=u,...)
+        fits[[i]]=fit
+        logl[i]=fit$value
+      },silent=T)
+    }
+  } else {
+    # try to get good initial values not at random
+    
+    check=F
+    try({
+      inifit <- optim(par = runif(d*(d-1)/2,-1,1),fn = mllSym,method="L-BFGS-B",
+                      lower = rep(-0.8,d*(d-1)/2),upper = rep(0.8,d*(d-1)/2),u=u,...)
+      check=T
+    },silent=T)
+    if(is.null(start)){
+      if(check==T & random==F){
+        nstart=1
+        alphastart=matrix(runif(n = nstart*d,min = -2,max = 2),nrow = nstart,ncol=d)
+        rhostart=matrix(inifit$par,nrow=1,ncol=d*(d-1)/2)
+      } else {
+        alphastart=matrix(runif(n = nstart*d,min = -2,max = 2),nrow = nstart,ncol=d)
+        rhostart=matrix(runif(n = nstart*d*(d-1)/2,min = -0.25,max = 0.25),nrow = nstart,ncol=d*(d-1)/2)
+      }
+      start=cbind(alphastart,rhostart)
+    } else {
+      nstart=nrow(start)
+    }
+
+    # lower and upper bounds for parameters
+    lower=c(rep(-200,d),rep(-0.99,d*(d-1)/2))
+    upper=c(rep(200,d),rep(0.99,d*(d-1)/2))
+
+    # minimizing the log-likelihood
+    fits=vector(mode = "list", length = nstart)
+    logl=rep(NA,nstart)
+    for(i in 1:nstart){
+      try({
+        fit=optim(par = start[i,],fn = mll,method="L-BFGS-B",lower = lower,upper = upper,
+              u=u,...)
+        fits[[i]]=fit
+        logl[i]=fit$value
+      },silent=T)
+    }
+  }
+
+  index=which.min(logl)
+  optimum=fits[[index]]$par
+  return(list("par"=optimum,"ll"=-logl[index]))
+
+}
+
+
+
+### random sample from skew-t copula ###
+########################################
+
+rSTcopula=function(n,alpha,rho,nu){
+  
+  # we assume Omega_bar=Omega
+  
+  # n: sample size
+  
+  ### multivariate sn parameters:
+  # alpha: d vector with skewing parameters of multivariate skew-normal 
+  # rho: d*(d-1)/2 vector with correlations of multivariate skew-normal
+  #      ordered by column (rho_{2,1},rho_{3,1,..,rho_{d,1},rho_{3,2},..,rho_{d,d-1}
+  # nu: degrees of freedom of t-distribution; >d, numeric
+  
+  # dimensions
+  d=length(alpha)
+  
+  # construct correlation matrix
+  Omega = diag(x = 1/2,nrow = d)
+  Omega[lower.tri(Omega)] = rho
+  Omega = Omega + t(Omega)
+  
+  # calculate delta from alpha and Omega
+  delta = Omega%*%alpha%*%(1+t(alpha)%*%Omega%*%alpha)^{-1/2}
+  
+  # generate sample from multivariate skew-t
+  x=rmst(n = n,Omega = Omega,alpha = alpha,nu = nu)
+  
+  # calculation of marginal skewness parameters according to 
+  # Azzalini & Capitanio 2014 chapter 6 & Yoshiba 2018
+  zeta=delta/(sqrt(1-delta^2))
+  
+  # calculate pseudo-observations
+  u=matrix(NA,nrow=n,ncol=d)
+  for(i in 1:d){
+    u[,i]=pst(x = x[,i],omega = Omega[i,i],alpha = zeta[i],nu = nu)
+  }
+  
+  return(u)
+}
+
+
+
+
+### Skew-t copula distribution ###
+##################################
+
+pSTcopula=function(u,alpha,rho,nu){
+  # u: nxd matrix containing pseudo observations (in [0,1])
+  # alpha: d vector containing multivariate skewing parameters
+  # rho: d*(d-1) vector containing correlation of multivariate skew normal 
+  #      distribution by column. 
+  # nu: degrees of freedom of t-distribution >d numeric
+  
+  n=nrow(u)
+  d=ncol(u)
+  
+  # construct correlation matrix 
+  Omega = diag(x = 1/2,nrow = d)
+  Omega[lower.tri(Omega)] = rho
+  Omega = Omega + t(Omega)
+  
+  # calculate delta from alpha and Omega
+  delta = Omega%*%alpha%*%(1+t(alpha)%*%Omega%*%alpha)^{-1/2}
+  
+  # calculation of marginal skewness parameters according to 
+  # Azzalini & Capitanio 2014 chapter 6 & Yoshiba 2018
+  zeta=delta/(sqrt(1-delta^2))
+  
+  
+  # skew-normal quantile function evaluated in u (F^-1(u)) and
+  # skew-normal distribution evaluated in skew-normal quantile in u (f(F^-1(u)))
+  Finv=matrix(NA,nrow = n,ncol = d)
+  for(i in 1:d){
+    Finv[,i]=qst(p = u[,i],omega =1,alpha = zeta[i],nu = nu)
+  }
+  
+  # calculate density of multivariate skew-t copula 
+  # pmst only accepts a vector, not a matrix
+  prob=apply(Finv,1,pmst,Omega = Omega,alpha = alpha,nu = nu)
+  
+  return(prob)
+  
+}
+
+
+
+
+
+### Skew-normal copula density ###
+##################################
+
+dSTcopula=function(u,alpha,rho,nu,log=FALSE){
+  # u: nxd matrix containing pseudo observations (in [0,1])
+  # alpha: d vector containing multivariate skewing parameters
+  # rho: d*(d-1) vector containing correlation of multivariate skew normal 
+  #      distribution by column. 
+  # nu: degrees of freedom of t-distribution >d numeric
+  # log: should log density be returned or not
+  
+  n=nrow(u)
+  d=ncol(u)
+  
+  # construct correlation matrix 
+  Omega = diag(x = 1/2,nrow = d)
+  Omega[lower.tri(Omega)] = rho
+  Omega = Omega + t(Omega)
+  
+  # calculate delta from alpha and Omega
+  delta = Omega%*%alpha%*%(1+t(alpha)%*%Omega%*%alpha)^{-1/2}
+  
+  # calculation of marginal skewness parameters according to 
+  # Azzalini & Capitanio 2014 chapter 6 & Yoshiba 2018
+  zeta=delta/(sqrt(1-delta^2))
+  
+  # skew-t quantile function evaluated in u (F^-1(u)) and
+  # skew-t density evaluated in skew-t quantile in u (f(F^-1(u)))
+  Finv=matrix(NA,nrow = n,ncol = d)
+  dt=matrix(NA,nrow = n,ncol = d)
+  for(i in 1:d){
+    Finv[,i]=qst(p = u[,i],omega = 1,alpha = zeta[i],nu = nu)
+    dt[,i]=dst(x = Finv[,i],omega = 1,alpha = zeta[i],nu = nu)
+  }
+  
+  # calculate density of multivariate skew-normal copula
+  dens=dmst(x = Finv,Omega = Omega,alpha = alpha,nu = nu)/apply(dt,1,prod)
+  
+  if(log==TRUE){
+    return(log(dens))
+  } else {
+    return(dens)
+  }
+  
+}
+
+
+
+
+### Maximum-likelihood fit of skew-normal copula on pseudo-observations ###
+###########################################################################
+
+# negative log likelihood function
+mllT=function(param,u){
+  d=ncol(u)
+  alpha=param[1:d]
+  rho=param[(d+1):(d*(d+1)/2)]
+  nu=param[(d*(d+1)/2)+1]
+  logl=dSTcopula(u = u,alpha = alpha,rho = rho,nu = nu,log = TRUE)
+  
+  return(-sum(logl))
+}
+
+# negative log likelihood function for symmetric model
+mllTSym=function(param,u){
+  d=ncol(u)
+  rho=param[1:(d*(d-1)/2)]
+  nu=param[d*(d-1)/2+1]
+  logl=dSTcopula(u = u,alpha = rep(0,d),rho = rho,nu = nu,log = TRUE)
+  
+  return(-sum(logl))
+}
+
+fitSTcopula=function(u,symmetric=FALSE,start=NULL,nstart=1,...){
+  
+  # u: a nxd matrix containing the pseudo-observations (in [0,1])
+  
+  # symmetric: logical, should symmetry be assumed (alpha=0)
+  
+  # start: kx(d*(d+1)/2+1) matrix containing starting values for the parameters;
+  #        kx(d*(d-1)/2+1) matrix when symmetric=FALSE
+  
+  # nstart: if start is not provided, nstart random starting values are
+  # generated in a plausible range. Defaults to 1
+  
+  # ...: options for the optimizer
+  
+  n=nrow(u)
+  d=ncol(u)
+  
+  if(symmetric==TRUE){
+    
+    # starting values for minimizing negative log-likelihood
+    if(is.null(start)){
+      startrho=matrix(runif(n = nstart*(d*(d-1)/2),min = -0.55,max = 0.55),nrow = nstart,ncol=d*(d-1)/2)
+      startnu=matrix(runif(n = nstart,min = d,max = 40),nrow=nstart,ncol=1)
+      start=cbind(startrho,startnu)
+    } else {
+      nstart=nrow(start)
+    }
+    
+    # lower and upper bounds for parameters
+    lower=c(rep(-0.8,d*(d-1)/2),d)
+    upper=c(rep(0.8,d*(d-1)/2),1000)
+    
+    # minimizing the log-likelihood
+    fits=vector(mode = "list", length = nstart)
+    logl=rep(NA,nstart)
+    for(i in 1:nstart){
+      try({
+        fit=optim(par = start[i,],fn = mllTSym,method="L-BFGS-B",lower = lower,upper = upper,
+                  u=u,...)
+        fits[[i]]=fit
+        logl[i]=fit$value
+      },silent=T)
+    }
+  } else {
+    # starting values for minimizing negative log-likelihood
+    if(is.null(start)){
+      alphastart=matrix(runif(n = nstart*d,min = -5,max = 5),nrow = nstart,ncol=d)
+      rhostart=matrix(runif(n = nstart*(d*(d-1)/2),min = -0.55,max = 0.55),nrow = nstart,ncol=d*(d-1)/2)
+      nustart=matrix(runif(n = nstart,min = d,max = 40),nrow=nstart,ncol=1)
+      start=cbind(alphastart,rhostart,nustart)
+    } else {
+      nstart=nrow(start)
+    }
+    
+    # lower and upper bounds for parameters
+    lower=c(rep(-20,d),rep(-0.6,d*(d-1)/2),d)
+    upper=c(rep(20,d),rep(0.6,d*(d-1)/2),60)
+    
+    # minimizing the log-likelihood
+    fits=vector(mode = "list", length = nstart)
+    logl=rep(NA,nstart)
+    for(i in 1:nstart){
+      try({
+        fit=optim(par = start[i,],fn = mllT,method="L-BFGS-B",lower = lower,upper = upper,
+                  u=u,...)
+        fits[[i]]=fit
+        logl[i]=fit$value
+      },silent=T)
+    }
+  }
+  
+  index=which.min(logl)
+  optimum=fits[[index]]$par
+  return(list("par"=optimum,"ll"=-logl[index]))
+  
+}
+
+
+
+
+
+### Test of symmetry ###
+########################
+
+DHS=function(X,type="all",a=2,b=1,c=1){
+  # X: nxd matrix containing the data
+  # type: "H" (Henze 2003), "S" (Szekely 2001), "D" (Dai 2018) or "all" (default)
+  # a: constant of Henze 2003 to govern power in (0,infty]. Defaults to 2
+  # b: constant of Szekely 2001 to govern power in (0,2]. Defaults to 1
+  # c: constant of Dai 2018 to govern power in (0,2]. Defaults to 1
+  
+  # dimensions of data
+  n=nrow(X)
+  d=ncol(X)
+  
+  # permutations
+  U=sample(x = c(-1,1),size = n,replace = T,prob = c(0.5,0.5))
+  
+  # calculating Z
+  Av=colMeans(X)
+  Sn=cov(X)
+  Y = sweep(x = X,MARGIN = 2,STATS = Av,FUN = "-")
+  Z = sweep(x = sweep(x = sweep(x = X,MARGIN = 2,STATS = Av,FUN = "-"),MARGIN = 1,STATS = U,FUN = "*")%*%msqrt(solve(Sn))$mtxsqrt,MARGIN = 1,STATS = sample(x = c(-1,1),size = n,replace = T),FUN = "*")
+  AvZ=colMeans(Z)
+  if(type=="H"){
+    # test statistic of Henze (21)
+    YH=0
+    for(i in 1:n){
+      for(j in 1:n){
+        YH=YH+2+sum(AvZ^2)/(a)-(1+(Z[i,]-Z[j,])%*%AvZ/(2*a))^2*exp(-sum((Z[i,]-Z[j,])^2)/(4*a)) -
+          (1+(Z[i,]+Z[j,])%*%AvZ/(2*a))^2*exp(-sum((Z[i,]+Z[j,])^2)/(4*a))
+      }
+    }
+    YH=YH*pi^(d/2)/(2*n*a^(d/2))
+    out=c(YH)
+    names(out)=c("H")
+    
+  } else if(type=="D"){
+    # test statistic of Szekely
+    YD=0
+    for(i in 1:n){
+      for(j in 1:n){
+        YD=YD+exp(-sum((Y[i,]-Y[j,])^2)^(b/2)) -
+          exp(-sum((Y[i,]+Y[j,])^2)^(b/2))
+      }
+    }
+    YD=1/(n^2)*YD
+    out=c(YD)
+    names(out)=c("D")
+    
+  } else if(type=="S"){
+    # test statistic of Dai (23)
+    YS=0
+    for(i in 1:n){
+      for(j in 1:n){
+        YS=YS-sum((Y[i,]-Y[j,])^2)^(c/2) +
+          sum((Y[i,]+Y[j,])^2)^(c/2)
+      }
+    }
+    YS=1/(n^2)*YS
+    out=c(YS)
+    names(out)=c("S")
+    
+  } else if(type=="all"){
+    # all three of the above
+    
+    # test statistic of Henze (21)
+    YH=0
+    for(i in 1:n){
+      for(j in 1:n){
+        YH=YH+2+sum(Av^2)/(a)-(1+(Z[i,]-Z[j,])%*%Av/(2*a))^2*exp(-sum((Z[i,]-Z[j,])^2)/(4*a)) -
+          (1+(Z[i,]+Z[j,])%*%Av/(2*a))^2*exp(-sum((Z[i,]+Z[j,])^2)/(4*a))
+      }
+    }
+    YH=YH*pi^(d/2)/(2*n*a^(d/2))
+    
+    # test statistic of Szekely (23)
+    YD=0
+    for(i in 1:n){
+      for(j in 1:n){
+        YD=YD+exp(-sum((Y[i,]-Y[j,])^2)^(b/2)) -
+          exp(-sum((Y[i,]+Y[j,])^2)^(b/2))
+      }
+    }
+    YD=1/(n^2)*YD
+
+    # test statistic of Dai (22)
+    YS=0
+    for(i in 1:n){
+      for(j in 1:n){
+        YS=YS-sum((Y[i,]-Y[j,])^2)^(c/2) +
+          sum((Y[i,]+Y[j,])^2)^(c/2)
+      }
+    }
+    YS=1/(n^2)*YS
+    out=c(YH,YD,YS)
+    names(out)=c("H","D","S")
+  }
+  return(out) 
+}
+
+
+### Depth based runs test ###
+#############################
+
+DBST=function(X,depth="SP"){
+  # X: nxd matrix with observations in the row
+  # depth: depth function to be used; "H"=halspace, "S"=simplicial,
+  #        "P"=projection, "DP"=directional projection,
+  #        "SP"= skew adjusted projection depth
+  
+  n=nrow(X)
+  d=ncol(X)
+  
+  if(d==2 & depth=="S"){
+    error("Simplicial depth is only implemented for d=2")
+  }
+  
+  switch(depth,
+         "H"={
+             # estimating the center
+             theta=hdepthmedian(x = X)$median
+             # calculating depth of data in augmented data
+             Xbar=rbind(X,sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+"))
+             # depth
+             depth=hdepth(x = Xbar,z = X)$depthZ
+         },
+         "S"={
+           theta=hdepthmedian(x = X)$median
+           Xbar=rbind(X,sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+"))
+           depth=sdepth(x = Xbar,z = X)$depthZ
+         },
+         "P"={
+           theta=projmedian(x = X)$gravity
+           Xbar=rbind(X,sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+"))
+           depth=projdepth(x = Xbar,z = X)$depthZ
+         },
+         "DP"={
+           theta=dprojmedian(x = X)$gravity
+           Xbar=rbind(X,sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+"))
+           depth=dprojdepth(x = Xbar,z = X)$depthZ
+         },
+         "SP"={
+           theta=sprojmedian(x = X)$gravity
+           Xbar=rbind(X,sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+"))
+           depth=sprojdepth(x = Xbar,z = X)$depthZ
+         })
+  
+  # sort data according by descending depth
+  Z=cbind(X,depth)
+  Z=Z[order(Z[,d+1],decreasing = T),-(d+1)]
+  TestValue=1
+  for(i in (d+1):n){
+    ch=convhulln(p = Z[i:(i-d),],output.options = T)
+    TestValue=TestValue+1*inhulln(ch = ch,p = matrix(theta,nrow=1,ncol=d)) 
+  }
+  
+  if(d==2){
+    pvalue=pnorm(q = (4*TestValue-n-2)/sqrt(n*11/3),mean = 0,sd = 1,lower.tail = T)
+    
+    return(list("TestValue"=TestValue,"P-value"=pvalue,"Median"=theta))
+  } else {
+    return(list("TestValue"=TestValue,"Median"=theta))
+  }
+  
+}
+
+
+
+
+
 
 
 
