@@ -1,8 +1,6 @@
-# first assume margins are fully known
-# later some more can be done, but this is priority
-# meant as a first check for the results, not a full blown study
-# try different settings
-
+###############################################################################################
+### This is for simulation setting 3, for others, change the parameters and the directories ###
+###############################################################################################
 
 source("~/functions.R")
 
