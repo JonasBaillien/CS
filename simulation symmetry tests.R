@@ -4,13 +4,7 @@
 # try different settings
 
 
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-source("C:/Users/u0125240/Documents/PhD/code/lineaire combinatie/Code part 1 Functions.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitPcopula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitSPcopula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+source("~/functions.R")
 
 library(copula)
 library(ks)
@@ -48,7 +42,7 @@ N <- 100
 
 
 # create folder to store output in
-dir.create(paste0("~/PhD/code/symmetry/output/simulation3"))
+dir.create(paste0("~/simulation3"))
 
 
 #######################################################################
@@ -64,35 +58,22 @@ IF <- 2
 
 # constants for references tests
 a <- 2 # Henze (2003)
-b <- 1 # Szekely (2001)
-c <- 1 # dai (2018)
+b <- 1 # dai (2018)
+c <- 1 # Szekely (2001)
 
 modelsettings <- list("seed"=seed,"d"=d,"sampsize"=n,"marginskew"=alpha.m,
                       "marginlocation"=xi.m,"marginscale"=omega.m,
                       "copulaskew"=alpha.c,"copulacor"=rho.c,"N"=N,
                       "nstart"=nstart,"GP"=GP,"IF"=IF,"a"=a,"b"=b,"c"=c)
-save(modelsettings,file=paste0("~/PhD/code/symmetry/output/simulation3/modelsettings.Rdata"))
+save(modelsettings,file=paste0("~/simulation3/modelsettings.Rdata"))
 
 # creating directories to save output
-# dir.create("~/PhD/code/symmetry/output/simulation3/teststatsP_UM")
-dir.create("~/PhD/code/symmetry/output/simulation3/teststatsP")
-dir.create("~/PhD/code/symmetry/output/simulation3/teststatsSP")
-dir.create("~/PhD/code/symmetry/output/simulation3/teststatsSPS")
-dir.create("~/PhD/code/symmetry/output/simulation3/teststatsNP")
-dir.create("~/PhD/code/symmetry/output/simulation3/data")
+dir.create("~/simulation3/teststatsP")
+dir.create("~/teststatsSP")
+dir.create("~/teststatsSPS")
+dir.create("~/teststatsNP")
+dir.create("~/simulation3/data")
 
-
-# function for fitting univariate skew normal distribution to data used in apply
-fitUVSN=function(Y,symmetric=T){
-  n <- length(Y)
-  if(symmetric==T){
-    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',fixed.param = list(alpha=0),selm.control = list(method="MLE"))
-    return(fit$param$dp.complete)
-  } else {
-    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',selm.control = list(method="MLE"))
-    return(fit$param$dp)
-  }
-}
 
 start.t=Sys.time()
 
@@ -103,13 +84,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                .combine = "cbind",.verbose = T,.errorhandling="remove") %dopar% {
                  
                  ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/lineaire combinatie/Code part 1 Functions.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitSPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+                 source("~/functions.R")
                  
                  
                  ### data generation and saving for reference
@@ -122,38 +97,9 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                    X[,i] <- qsn(p = U[,i],xi = xi.m[i],omega = omega.m[i],alpha = alpha.m[i])
                  }
                  dat <- list("U"=U,"X"=X)
-                 save(dat,file = paste0("~/PhD/code/symmetry/output/simulation3/data/run",q,".Rdata"))
+                 save(dat,file = paste0("~/simulation3/data/run",q,".Rdata"))
 
-                 
-                 
-                 
-                 ### parametric fit and symmetry test using GLRT when margins 
-                 ### need to be estimated as well
-                 
-                 # # regular fitting 
-                 # fitReg.P.m <- apply(X,MARGIN = 2, FUN = fitUVSN, symmetric=F)
-                 # PobsReg <- matrix(NA,nrow=n,ncol=d)
-                 # for(i in 1:d){
-                 #   PobsReg[,i] <- psn(x = X[,i],xi = fitReg.P.m[1,i],omega = fitReg.P.m[2,i],alpha = fitReg.P.m[3,i])
-                 # }
-                 # fitReg.P.c <- fitSNcopula(u = PobsReg,symmetric = F,nstart = nstart)
-                 
-                 # # symmetric fitting
-                 # fitSym.P.m <- apply(X,MARGIN = 2,FUN = fitUVSN, symmetric=T)
-                 # PobsSym <- matrix(NA,nrow=n,ncol=d)
-                 # for(i in 1:d){
-                 #   PobsSym[,i] <- psn(x = X[,i],xi = fitSym.P.m[1,i],omega = fitSym.P.m[2,i],alpha = fitSym.P.m[3,i])
-                 # }
-                 # fitSym.P.c <- fitSNcopula(u = PobsSym,symmetric = T,nstart = nstart)
-                 # 
-                 # # test statistic
-                 # W.P_um <- -2*(fitSym.P.c$ll-fitReg.P.c$ll)
-                 # 
-                 # # output
-                 # parametric_um <- list("MPSym"=fitSym.P.m,"fitSym"=fitSym.P.c,
-                 #                    "MPReg"=fitReg.P.c,"fitReg"=fitReg.P.c,
-                 #                    "TS"=W.P)
-                 # save(parametric_um,file=paste0("~/PhD/code/symmetry/output/simulation3/teststatsP_UM/run",q,".Rdata"))
+
                  
                  
                  ### parametric fit assuming margins are fully known, including 
@@ -168,7 +114,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  # output
                  parametric <- list("fitSym"=fitSym.P,"fitReg"=fitReg.P,
                                     "TS"=W.P)
-                 save(parametric,file=paste0("~/PhD/code/symmetry/output/simulation3/teststatsP/run",q,".Rdata"))
+                 save(parametric,file=paste0("~/simulation3/teststatsP/run",q,".Rdata"))
                  },silent=TRUE)
                  
                  
@@ -197,7 +143,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  # output
                  semiparametric <- list("fitSym"=fitSym.SP,"fitReg"=fitReg.SP,
                                         "TS"=W.SP)
-                 save(semiparametric,file=paste0("~/PhD/code/symmetry/output/simulation3/teststatsSP/run",q,".Rdata"))
+                 save(semiparametric,file=paste0("~/simulation3/teststatsSP/run",q,".Rdata"))
                  
                  
                  # symmetric fitting without assumed symmetric margins
@@ -209,7 +155,7 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  # output
                  semiparametric2 <- list("fitSym"=fitSym.SPS,"fitReg"=fitReg.SP,
                                     "TS"=W.SPS)
-                 save(semiparametric2,file=paste0("~/PhD/code/symmetry/output/simulation3/teststatsSPS/run",q,".Rdata"))
+                 save(semiparametric2,file=paste0("~/simulation3/teststatsSPS/run",q,".Rdata"))
                  },silent=T)
                
                  
@@ -241,21 +187,12 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  # output
                  nonparametric <- list("bw"= fitSym.NP$bw,"LRTNP"=W.NP,
                                        "DHS"=W.DHS,"DR"=W.DR,"XAug"=XAug)
-                 save(nonparametric,file=paste0("~/PhD/code/symmetry/output/simulation3/teststatsNP/run",q,".Rdata"))
+                 save(nonparametric,file=paste0("~/simulation3/teststatsNP/run",q,".Rdata"))
                  },silent=T)
 }
 stopCluster(cl)
 end.t <- Sys.time()
 time.takensim <- difftime(end.t,start.t,units = "secs")
-
-
-
-
-
-
-
-
-
 
 
 
@@ -270,7 +207,7 @@ time.takensim <- difftime(end.t,start.t,units = "secs")
 NN <- 400
 
 # load in settings
-load(paste0("~/PhD/code/symmetry/output/simulation3/modelsettings.Rdata")) # name modelsettings
+load(paste0("~/simulation3/modelsettings.Rdata")) # name modelsettings
 
 # dimension and sample size
 n <- modelsettings$sampsize
@@ -303,7 +240,7 @@ c <- modelsettings$c # dai (2018)
 
 # save new settings
 modelsettings["NN"] <- NN
-save(modelsettings,file = paste0("~/PhD/code/symmetry/output/simulation3/modelsettingsAsyDist.Rdata"))
+save(modelsettings,file = paste0("~/simulation3/modelsettingsAsyDist.Rdata"))
 
 
 ### non-parametric GLRT and reference tests
@@ -318,15 +255,14 @@ NPR <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  set.seed(27422+q)
                  
                  ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+                 source("~/functions.R")
                  
                  # load in the original dataset
-                 load(paste0("~/PhD/code/symmetry/output/simulation3/data/run",q,".Rdata"))
+                 load(paste0("~/simulation3/data/run",q,".Rdata"))
                  X <- dat$X
                  
                  # load in the estimates
-                 load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsNP/run",q,".Rdata"))
+                 load(paste0("~/simulation3/teststatsNP/run",q,".Rdata"))
                  bw <- nonparametric$bw 
                  XAug <- nonparametric$XAug
                  
@@ -360,72 +296,12 @@ NPR <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  }         
                  # output
                  TSDist <- list("LRTNP"=W.NP,"DHS"=W.DHS,"DR"=W.DR)          
-                 save(TSDist,file=paste0("~/PhD/code/symmetry/output/simulation3/teststatsNP/TSDistRun",q,".Rdata"))
+                 save(TSDist,file=paste0("~/simulation3/teststatsNP/TSDistRun",q,".Rdata"))
                  
               }
 stopCluster(cl)
 end.t <- Sys.time()
 time.takenstats <- difftime(end.t,start.t,units = "secs")
-
-### semi-parametric GLRT with possible asymmetric margins
-#########################################################
-
-cl <- makeCluster(5)
-registerDoParallel(cl)
-start.t=Sys.time()
-SPR <- foreach(q=87:N,.packages=c('sn','ks','copula','nloptr'),
-               .combine = "cbind",.verbose = T,.errorhandling="remove") %dopar% {
-                 
-                 set.seed(27422+q)
-                 
-                 ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-                 
-                 # load in the estimates
-                 load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsSPS/run",q,".Rdata"))
-                 parsym <- semiparametric2$fitSym$par
-                 
-              
-                 # determining the asymptotic distribution using Monte Carlo under
-                 # the assumption we know the margins 
-                 # the other option would be bootstrapping from symmetrized 
-                 # pseudo-observations
-                 W.SPS <- rep(NA,NN)
-                 
-                 for(i in 1:NN){
-                   # generate pseudo-observations
-                   U <- rSNcopula(n = n,alpha = rep(0,d),rho = parsym)
-                   # transform to data scale
-                   X <- matrix(NA,nrow=n,ncol=d)
-                   for(j in 1:d){
-                     X[,j] <- qsn(p = U[,j],xi = xi.m[j],omega = omega.m[j],alpha = alpha.m[j])
-                   }
-                   # generating non-parametric symmetrized pseudo-observations 
-                   # with respect to the median 
-                   theta <- apply(X,2,median)
-                   X2 <- sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+")
-                   U2 <- pobs(x = rbind(X,X2))[1:n,] 
-                   try({
-                    # regular fit
-                    fitReg <- fitSNcopula(u = U,symmetric = F,nstart = nstart,random=F)
-                   
-                    # symmetric fit
-                    fitSym <- fitSNcopula(u = U2,symmetric = T,nstart = nstart,random=F)
-                   
-                    W.SPS[i] <- -2*(fitSym$ll-fitReg$ll)
-                   },silent=TRUE)
-                 }         
-                 # output
-                 TSDist <- list("LRTSPS"=W.SPS)          
-                 save(TSDist,file=paste0("~/PhD/code/symmetry/output/simulation3/teststatsSPS/TSDistRun",q,".Rdata"))
-               }
-stopCluster(cl)
-end.t <- Sys.time()
-time.takenstats <- difftime(end.t,start.t,units = "secs")
-
-
-
-
 
 
 ###############################
@@ -440,27 +316,14 @@ pvalue.SP <- rep(NA,N)
 for(q in 1:N){
   # parametric
   # load in the estimates
-  load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsP/run",q,".Rdata"))
+  load(paste0("~/simulation3/teststatsP/run",q,".Rdata"))
   # p-value
   pvalue.P[q] <- pchisq(q = parametric$TS,df = d,lower.tail = FALSE)
   
-  load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsSP/run",q,".Rdata"))
+  load(paste0("~/simulation3/teststatsSP/run",q,".Rdata"))
   pvalue.SP[q]<- pchisq(q = semiparametric$TS,df = d,lower.tail = FALSE )
 }
 
-### semi parametric testing under the assumption the margins are not symmetric 
-pvalue.SPS <- rep(NA,N)
-for(q in 1:N){
-  try({
-  # load in the estimates
-  load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsSPS/run",q,".Rdata"))
-  load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsSPS/TSDistRun",q,".Rdata"))
-  stat <- na.omit(TSDist$LRTSPS)
-  pvalue.SPS[q] <- sum(semiparametric2$TS<stat)/length(stat)
-  },silent=T)
-  
-}
-pvalue.SPS <- na.omit(pvalue.SPS)
 
 ### non-parametric testing and reference tests
 pvalue.NP <- rep(NA,N)
@@ -471,8 +334,8 @@ pvalue.R <- rep(NA,N)
 for(q in 1:N){
   
   # load in the estimates
-  load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsNP/TSDistRun",q,".Rdata"))
-  load(paste0("~/PhD/code/symmetry/output/simulation3/teststatsNP/run",q,".Rdata"))
+  load(paste0("~/simulation3/teststatsNP/TSDistRun",q,".Rdata"))
+  load(paste0("~/simulation3/teststatsNP/run",q,".Rdata"))
   
   # p-values
   pvalue.NP[q] <- sum(nonparametric$LRTNP<TSDist$LRTNP)/NN
