@@ -1,6 +1,9 @@
 library(ggplot2)
 library(gridExtra)
 
+### script of plotting bivariate skew-normal copula ###
+#######################################################
+
 n=2000
 u=data.frame(rSNcopula(n = n,alpha = c(0,0),rho = -0.8))
 colnames(u)=c("x","y")
