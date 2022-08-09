@@ -1,30 +1,18 @@
-library(copula)
-library(QBAsyDist)
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/QBAmarginfit.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+### load in required functions ###
+##################################
+source("~/functions.R")
 
-
-fitUVSN=function(Y,symmetric=T){
-  n <- length(Y)
-  if(symmetric==T){
-    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',fixed.param = list(alpha=0),selm.control = list(method="MLE"))
-    return(fit$param$dp.complete)
-  } else {
-    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',selm.control = list(method="MLE"))
-    return(fit$param$dp)
-  }
-}
 
 #### Data examples ###
 ######################
 
-
 ### Example 1: Body measeruments data
-# in lessR library
-body <- read.csv("~/PhD/code/datasets/dataBodyMeas.csv")
+# loading data (from lessR package)
+library(lessR)
+data("dataBodyMeas)
+body <- dataBodyMeas
+
+# plotting data
 x11()
 pairs(body[,-2])
 X1=as.matrix(body[,c(3,5)])
@@ -38,33 +26,45 @@ n1=nrow(X1)
 d1=ncol(X1)
 
 ### parametric fitting
-# determining margins
+
+## determining marginals
+# unconstrained
 margins1R.1=marginfit(data = as.matrix(X1[,1]),crit = "AIC",symmetric=F) # t
 margins1R.2=marginfit(data = as.matrix(X1[,2]),crit = "AIC",symmetric=F) # logistic
 
+# symmetric
 margins1S.1=marginfit(data = as.matrix(X1[,1]),crit = "AIC",symmetric=T) # t
 margins1S.2=marginfit(data = as.matrix(X1[,2]),crit = "AIC",symmetric=T) # logistic
 
-# pseudo-observations
+## pseudo-observations
+# unconstrained
 UP1.R = cbind(margins1R.1$U,margins1R.2$U)
+# symmetric
 UP1.S = cbind(margins1S.1$U,margins1S.2$U)
 
-# fits
+
+## fits
+# unconstrained
 fit1P.R = fitSNcopula(u = UP1.R,symmetric = F,nstart = 10,random = T) 
+# symmetric
 fit1P.S = fitSNcopula(u = UP1.S,symmetric = T,nstart = 10,random = T) 
+
 
 
 ### semi-parametric fitting
 
-# symmetrized sample w.r.t. the median
+## symmetrized sample w.r.t. the median
 theta1 <- apply(X1,2,median)
 X1S <- sweep(x = -X1,MARGIN = 2,STATS = 2*theta1,FUN = "+")
 X1AUG <- rbind(X1,X1S)
 
-# pseudo-observations
+## pseudo-observations
+# empirical original data
 USP1 = pobs(X1)
+# empirical in augmented data
 USPS1 = pobs(X1AUG)[1:n1,]
 
+## fitting SN-copula
 # regular
 fit1SP.R = fitSNcopula(u = USP1,symmetric = F,nstart = 10,random = T)
 # symmetric on regular pseudo-observations
@@ -73,7 +73,9 @@ fit1SP.S = fitSNcopula(u = USP1,symmetric = T,nstart = 10,random = T)
 fit1SPS.S = fitSNcopula(u = USPS1,symmetric = T,nstart = 10,random = T)
 
 ### non-parametric fitting
+# unconstrained
 fit1NP.R = fitNP(X = X1,symmetric = F,IF = 2,GP = 100,ub = c(550,75),lb = c(50,15))
+# centrally symmetric
 fit1NP.S = fitNP(X = X1,symmetric = T,IF = 2,GP = 100,ub = c(550,75),lb = c(-200,0))
 
 
@@ -87,12 +89,12 @@ W1.DHS <- DHS(X = X1,type = "all",a = 2,b = 1,c = 1)
 W1.DR <- DBST(X = X1+runif(n1*d1,-0.001,0.001),depth = "H")
 
 ### Asymptotic distribution of test statistics
-dir.create("~/PhD/code/symmetry/output/dataexamples")
+dir.create("~/dataexamples")
 
 testvalues=list("W1.P"=W1.P,"W1.SP"=W1.SP,"W1.SPS"=W1.SPS,"W1.NP"=W1.NP,"W1.DHS"=W1.DHS,"W1.DR"=W1.DR)
-save(testvalues,file=paste0("~/PhD/code/symmetry/output/dataexamples/BodyMeasTestValues.Rdata"))
+save(testvalues,file=paste0("~/dataexamples/BodyMeasTestValues.Rdata"))
 
-# parametric
+# parametric tests in parallel
 cl <- makeCluster(5)
 registerDoParallel(cl)
 ### main loop for drawing sample from the model and refitting it to the sample
@@ -102,7 +104,8 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  set.seed(58+q)
                  
                  ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
+                 source("~/functions.R")
+                 source("skew normal copula.R")
                  source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
                  source("C:/Users/u0125240/Documents/PhD/code/lineaire combinatie/Code part 1 Functions.R")
                  source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
@@ -110,6 +113,8 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitSPcopula.R")
                  source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
                  
+
+                 # Generate sample of pseudo-observations under the model with assumed central symmetry
                  MCU1.P <- rSNcopula(n = n1,alpha = rep(0,d1), rho = fit1P.S$par)
                  MCX1.P <- matrix(NA,nrow=n1,ncol=2)
                  MCX1.P[,1] <- qATD(beta = MCU1.P[,1],mu = margins1S.1$parameters[2]
@@ -166,7 +171,7 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  MCW1.DR <- DBST(X = MCX1.NP,depth = "H")
                  
                  out <- list("MCW1.P"=MCW1.P,"MCW1.SPS"=MCW1.SPS,"MCW1.NP"=MCW1.NP,"MCW1.DHS"=MCW1.DHS,"MCW1.DR"=MCW1.DR)
-                 save(out,file=paste0("~/PhD/code/symmetry/output/dataexamples/AsymptDistBodyMeasRun",q,".Rdata"))
+                 save(out,file=paste0("~/dataexamples/AsymptDistBodyMeasRun",q,".Rdata"))
                }
 stopCluster(cl)
 
@@ -240,10 +245,10 @@ W2.DR <- DBST(X = X2+runif(n2*d2,-0.001,0.001),depth = "H")
 
 
 ### Asymptotic distribution of test statistics
-dir.create("~/PhD/code/symmetry/output/dataexamples")
+dir.create("~/dataexamples")
 
 testvalues=list("W2.P"=W2.P,"W2.SP"=W2.SP,"W2.SPS"=W2.SPS,"W2.NP"=W2.NP,"W2.DHS"=W2.DHS,"W2.DR"=W2.DR)
-save(testvalues,file=paste0("~/PhD/code/symmetry/output/dataexamples/StockTestValues.Rdata"))
+save(testvalues,file=paste0("~/dataexamples/StockTestValues.Rdata"))
 
 
 # parametric
@@ -256,14 +261,9 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  set.seed(58+q)
                  
                  ### required files:
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/lineaire combinatie/Code part 1 Functions.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitSPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+                 source("~/functions.R")
                  
+                 # Generate sample of pseudo-observations under the model with assumed central symmetry
                  MCU2.P <- rSNcopula(n = n2,alpha = rep(0,d2), rho = fit2P.S$par)
                  MCX2.P <- matrix(NA,nrow=n2,ncol=2)
                  MCX2.P[,1] <- qATD(beta = MCU2.P[,1],mu = margins2S.1$parameters[2]
@@ -320,6 +320,6 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  MCW2.DR <- DBST(X = MCX2.NP,depth = "H")
                  
                  out <- list("MCW2.P"=MCW2.P,"MCW2.SPS"=MCW2.SPS,"MCW2.NP"=MCW2.NP,"MCW2.DHS"=MCW2.DHS,"MCW2.DR"=MCW2.DR)
-                 save(out,file=paste0("~/PhD/code/symmetry/output/dataexamples/AsymptDistStockRun",q,".Rdata"))
+                 save(out,file=paste0("~/dataexamples/AsymptDistStockRun",q,".Rdata"))
                }
 stopCluster(cl)
