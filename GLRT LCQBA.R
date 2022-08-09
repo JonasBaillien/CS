@@ -3,12 +3,8 @@
 ###############################################################
 
 
-source("~/PhD/code/lineaire combinatie/Code part 1 Functions.R")
-source("~/PhD/code/symmetry/fitLCS.R")
+source("~/functions.R")
 
-library(LaplacesDemon)
-library(metRology)
-library(QBAsyDist)
 
 ### LCQBA model parameters ###
 ##############################
