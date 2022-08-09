@@ -1,4 +1,4 @@
-source("C~/functions.R")
+source("~/functions.R")
 
 library(copula)
 library(ks)
