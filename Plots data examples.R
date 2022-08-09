@@ -1,31 +1,11 @@
-library(copula)
-library(QBAsyDist)
-library(ks)
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/skew normal copula.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/plot.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/QBAmarginfit.R")
-source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
 
-# function for fitting univariate skew normal distribution to data used in apply
-fitUVSN=function(Y,symmetric=T){
-  n <- length(Y)
-  if(symmetric==T){
-    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',fixed.param = list(alpha=0),selm.control = list(method="MLE"))
-    return(list("par"=fit$param$dp.complete,"ll"=fit$logL))
-  } else {
-    fit <- selm.fit(x = matrix(1,nrow=n,ncol=1),y = Y,family = 'SN',selm.control = list(method="MLE"))
-    return(list("par"=fit$param$dp,"ll"=fit$logL))
-  }
-}
-
-
+source("~/functions.R")
 
 ### Body measurement data ###
 #############################
-
-body <- read.csv("~/PhD/code/datasets/dataBodyMeas.csv")
+library(lessR)
+data(dataBodyMeas)
+body <- dataBodyMeas
 X1=as.matrix(body[,c(3,5)])
 
 x11()
@@ -239,14 +219,14 @@ DW1.S  <- rep(NA,400)
 DW1.DR <- rep(NA,400)
 
 for(i in 1:400){
-  load(paste0("~/PhD/code/symmetry/output/dataexamples/bodymeas/AsymptDistBodyMeasRun",i,".Rdata"))
+  load(paste0("~/dataexamples/bodymeas/AsymptDistBodyMeasRun",i,".Rdata"))
   DW1.D[i] <- out$MCW1.DHS[2]
   DW1.S[i] <- out$MCW1.DHS[3]
   DW1.H[i] <- out$MCW1.DHS[1]
   DW1.DR[i] <- out$MCW1.DR$TestValue
-  load(paste0("~/PhD/code/symmetry/output/dataexamples/bodymeas/AsymptDistPBodyMeasRun",i,".Rdata"))
+  load(paste0("~/dataexamples/bodymeas/AsymptDistPBodyMeasRun",i,".Rdata"))
   DW1.P[i] <- out$MCW1.P
-  load(paste0("~/PhD/code/symmetry/output/dataexamples/bodymeas/AsymptDistNPRun",i,".Rdata"))
+  load(paste0("~/dataexamples/bodymeas/AsymptDistNPRun",i,".Rdata"))
   DW1.NP[i] <- out$MCW1.NP
 }
 
@@ -468,13 +448,13 @@ DW2.S  <- rep(NA,400)
 DW2.DR <- rep(NA,400)
 
 for(i in 1:400){
-  load(paste0("~/PhD/code/symmetry/output/dataexamples/stock/AsymptDistStockRun",i,".Rdata"))
+  load(paste0("~/dataexamples/stock/AsymptDistStockRun",i,".Rdata"))
   DW2.NP[i] <- out$MCW2.NP
   DW2.D[i] <- out$MCW2.DHS[2]
   DW2.S[i] <- out$MCW2.DHS[3]
   DW2.H[i] <- out$MCW2.DHS[1]
   DW2.DR[i] <- out$MCW2.DR$TestValue
-  load(paste0("~/PhD/code/symmetry/output/dataexamples/stock/AsymptDistPStockRun",i,".Rdata"))
+  load(paste0("~/dataexamples/stock/AsymptDistPStockRun",i,".Rdata"))
   DW2.P[i] <- out$MCW2.P
 }
 
@@ -485,4 +465,3 @@ pvalue2.S <- sum(DW2.S>W2.DHS[3])/400
 pvalue2.H <- sum(DW2.H>W2.DHS[1])/400
 pvalue2.D <- sum(DW2.D<W2.DHS[2])/400
 pvalue2.DR <- W2.DR$`P-value`
-# sum(DW2.DR<W2.DR$TestValue)/400
