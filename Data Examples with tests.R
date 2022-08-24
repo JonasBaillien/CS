@@ -105,13 +105,7 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  
                  ### required files:
                  source("~/functions.R")
-                 source("skew normal copula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/symmetry tests.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/lineaire combinatie/Code part 1 Functions.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitLCS.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitSPcopula.R")
-                 source("C:/Users/u0125240/Documents/PhD/code/symmetry/fitNP.R")
+                 source("~/skew normal copula.R")
                  
 
                  # Generate sample of pseudo-observations under the model with assumed central symmetry
