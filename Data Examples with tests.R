@@ -9,7 +9,7 @@ source("~/functions.R")
 ### Example 1: Body measeruments data
 # loading data (from lessR package)
 library(lessR)
-data("dataBodyMeas)
+data("dataBodyMeas")
 body <- dataBodyMeas
 
 # plotting data
