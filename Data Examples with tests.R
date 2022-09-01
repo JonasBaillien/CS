@@ -1,6 +1,6 @@
 ### load in required functions ###
 ##################################
-source("~/functions.R")
+source("functions.R")
 
 
 #### Data examples ###
@@ -49,15 +49,20 @@ fit1P.R = fitSNcopula(u = UP1.R,symmetric = F,nstart = 10,random = T)
 # symmetric
 fit1P.S = fitSNcopula(u = UP1.S,symmetric = T,nstart = 10,random = T) 
 
+### non-parametric fitting
+# unconstrained
+fit1NP.R = fitNP(X = X1,symmetric = F,IF = 2,GP = 100,ub = c(550,75),lb = c(50,15))
+# centrally symmetric
+fit1NP.S = fitNP(X = X1,symmetric = T,IF = 2,GP = 100,ub = c(550,75),lb = c(-200,0))
 
-
-### semi-parametric fitting
-
-## symmetrized sample w.r.t. the median
-theta1 <- apply(X1,2,median)
+## symmetrized sample w.r.t. the mode
+theta1 <- fit1NP.S$mode
 X1S <- sweep(x = -X1,MARGIN = 2,STATS = 2*theta1,FUN = "+")
 X1AUG <- rbind(X1,X1S)
 
+
+
+### semi-parametric fitting
 ## pseudo-observations
 # empirical original data
 USP1 = pobs(X1)
@@ -71,14 +76,6 @@ fit1SP.R = fitSNcopula(u = USP1,symmetric = F,nstart = 10,random = T)
 fit1SP.S = fitSNcopula(u = USP1,symmetric = T,nstart = 10,random = T)
 # symmetric on symmetrized pseudo-observations
 fit1SPS.S = fitSNcopula(u = USPS1,symmetric = T,nstart = 10,random = T)
-
-### non-parametric fitting
-# unconstrained
-fit1NP.R = fitNP(X = X1,symmetric = F,IF = 2,GP = 100,ub = c(550,75),lb = c(50,15))
-# centrally symmetric
-fit1NP.S = fitNP(X = X1,symmetric = T,IF = 2,GP = 100,ub = c(550,75),lb = c(-200,0))
-
-
 
 ### testing for symmetry
 W1.P <- -2*(fit1P.S$ll-fit1P.R$ll)
@@ -105,7 +102,6 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  
                  ### required files:
                  source("~/functions.R")
-                 source("~/skew normal copula.R")
                  
 
                  # Generate sample of pseudo-observations under the model with assumed central symmetry
@@ -137,25 +133,27 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  MCfit1P.S = fitSNcopula(u = MCUP1.S,symmetric = T,nstart = 5,random = T) 
                  
                  
-                 ### semi-parametric fitting                 
-                 # symmetrized sample w.r.t. the median
+                 
+                 
+                 ### non-parametric fitting
                  MCX1.NP <- jitter(X1AUG[sample(x = 1:(2*n1),size = n1,replace = T),],factor = 0.0001)
-                 MCtheta1.NP <- apply(MCX1.NP,2,median)
+                 MCfit1NP.R = fitNP(X = MCX1.NP,symmetric = F,IF = 2,GP = 100,ub = c(550,75),lb = c(50,15))
+                 MCfit1NP.S = fitNP(X = MCX1.NP,symmetric = T,IF = 2,GP = 100,ub = c(550,75),lb = c(-200,0))
+                 
+                                 
+                 # symmetrized sample w.r.t. the median
+                 MCtheta1.NP <- MCfit1NP.S$mode
                  MCX1.S <- sweep(x = -MCX1.NP,MARGIN = 2,STATS = 2*MCtheta1.NP,FUN = "+")
                  
                  MCU1.SP <- pobs(MCX1.NP)
                  MCU1.SPS = pobs(rbind(MCX1,MCX1.S))[1:n1,]
                  
-                 
+                 ### semi-parametric fitting 
+
                  # regular
                  MCfit1SP.R = fitSNcopula(u = MCU1.SP,symmetric = F,nstart = 10,random = T)
                  # symmetric on symmetrized pseudo-observations
                  MCfit1SPS.S = fitSNcopula(u = MCU1.SPS,symmetric = T,nstart = 10,random = T)
-                 
-                 ### non-parametric fitting
-                 MCfit1NP.R = fitNP(X = MCX1.NP,symmetric = F,IF = 2,GP = 100,ub = c(550,75),lb = c(50,15))
-                 MCfit1NP.S = fitNP(X = MCX1.NP,symmetric = T,IF = 2,GP = 100,ub = c(550,75),lb = c(-200,0))
-                 
                  
                  ### testing for symmetry
                  MCW1.P <- -2*(MCfit1P.S$ll-MCfit1P.R$ll)
@@ -205,14 +203,15 @@ UP2.S = cbind(margins2S.1$U,margins2S.2$U)
 fit2P.R = fitSNcopula(u = UP2.R,symmetric = F,nstart = 10,random = T) 
 fit2P.S = fitSNcopula(u = UP2.S,symmetric = T,nstart = 10,random = T) 
 
-
-### semi-parametric fitting
-
+### non-parametric fitting
+fit2NP.R = fitNP(X = X2,symmetric = F,IF = 2,GP = 100,ub = c(0.16,0.135),lb = c(-0.15,-0.13))
+fit2NP.S = fitNP(X = X2,symmetric = T,IF = 2,GP = 100,ub = c(0.16,0.135),lb = c(-0.15,-0.13))
 # symmetrized sample w.r.t. the median
-theta2 <- apply(X2,2,median)
+theta2 <- fit2NP.S$mode
 X2S <- sweep(x = -X2,MARGIN = 2,STATS = 2*theta2,FUN = "+")
 X2AUG <- rbind(X2,X2S)
 
+### semi-parametric fitting
 # pseudo-observations
 USP2 = pobs(X2)
 USPS2 = pobs(X2AUG)[1:n2,]
@@ -223,10 +222,6 @@ fit2SP.R = fitSNcopula(u = USP2,symmetric = F,nstart = 10,random = T)
 fit2SP.S = fitSNcopula(u = USP2,symmetric = T,nstart = 10,random = T)
 # symmetric on symmetrized pseudo-observations
 fit2SPS.S = fitSNcopula(u = USPS2,symmetric = T,nstart = 10,random = T)
-
-### non-parametric fitting
-fit2NP.R = fitNP(X = X2,symmetric = F,IF = 2,GP = 100,ub = c(0.16,0.135),lb = c(-0.15,-0.13))
-fit2NP.S = fitNP(X = X2,symmetric = T,IF = 2,GP = 100,ub = c(0.16,0.135),lb = c(-0.15,-0.13))
 
 
 ### testing for symmetry
@@ -286,24 +281,24 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  MCfit2P.S = fitSNcopula(u = MCUP2.S,symmetric = T,nstart = 3,random = T) 
                  
                  
-                 ### semi-parametric fitting                 
-                 # symmetrized sample w.r.t. the median
+                                
+                 ### non-parametric fitting
                  MCX2.NP <- jitter(X2AUG[sample(x = 1:(2*n2),size = n2,replace = T),],factor = 0.0001)
-                 MCtheta2.NP <- apply(MCX2.NP,2,median)
+                 MCfit2NP.R = fitNP(X = MCX2.NP,symmetric = F,IF = 2,GP = 100,ub = c(550,75),lb = c(50,15))
+                 MCfit2NP.S = fitNP(X = MCX2.NP,symmetric = T,IF = 2,GP = 100,ub = c(550,75),lb = c(-200,0))
+                 
+                 # symmetrized sample w.r.t. the median
+                 MCtheta2.NP <- MCfit2NP.S$mode
                  MCX2.S <- sweep(x = -MCX2.NP,MARGIN = 2,STATS = 2*MCtheta2.NP,FUN = "+")
                  
                  MCU2.SP <- pobs(MCX2.NP)
                  MCU2.SPS = pobs(rbind(MCX2.NP,MCX2.S))[1:n2,]
                  
-                 
+                 ### semi-parametric fitting  
                  # regular
                  MCfit2SP.R = fitSNcopula(u = MCU2.SP,symmetric = F,nstart = 10,random = T)
                  # symmetric on symmetrized pseudo-observations
                  MCfit2SPS.S = fitSNcopula(u = MCU2.SPS,symmetric = T,nstart = 10,random = T)
-                 
-                 ### non-parametric fitting
-                 MCfit2NP.R = fitNP(X = MCX2.NP,symmetric = F,IF = 2,GP = 100,ub = c(550,75),lb = c(50,15))
-                 MCfit2NP.S = fitNP(X = MCX2.NP,symmetric = T,IF = 2,GP = 100,ub = c(550,75),lb = c(-200,0))
                  
                  
                  ### testing for symmetry
