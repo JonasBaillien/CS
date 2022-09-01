@@ -89,7 +89,7 @@ W1.DR <- DBST(X = X1+runif(n1*d1,-0.001,0.001),depth = "H")
 dir.create("~/dataexamples")
 
 testvalues=list("W1.P"=W1.P,"W1.SP"=W1.SP,"W1.SPS"=W1.SPS,"W1.NP"=W1.NP,"W1.DHS"=W1.DHS,"W1.DR"=W1.DR)
-save(testvalues,file=paste0("~/dataexamples/BodyMeasTestValues.Rdata"))
+save(testvalues,file=paste0("dataexamples/BodyMeasTestValues.Rdata"))
 
 # parametric tests in parallel
 cl <- makeCluster(5)
@@ -101,7 +101,7 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  set.seed(58+q)
                  
                  ### required files:
-                 source("~/functions.R")
+                 source("functions.R")
                  
 
                  # Generate sample of pseudo-observations under the model with assumed central symmetry
@@ -163,7 +163,7 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  MCW1.DR <- DBST(X = MCX1.NP,depth = "H")
                  
                  out <- list("MCW1.P"=MCW1.P,"MCW1.SPS"=MCW1.SPS,"MCW1.NP"=MCW1.NP,"MCW1.DHS"=MCW1.DHS,"MCW1.DR"=MCW1.DR)
-                 save(out,file=paste0("~/dataexamples/AsymptDistBodyMeasRun",q,".Rdata"))
+                 save(out,file=paste0("dataexamples/AsymptDistBodyMeasRun",q,".Rdata"))
                }
 stopCluster(cl)
 
@@ -237,7 +237,7 @@ W2.DR <- DBST(X = X2+runif(n2*d2,-0.001,0.001),depth = "H")
 dir.create("~/dataexamples")
 
 testvalues=list("W2.P"=W2.P,"W2.SP"=W2.SP,"W2.SPS"=W2.SPS,"W2.NP"=W2.NP,"W2.DHS"=W2.DHS,"W2.DR"=W2.DR)
-save(testvalues,file=paste0("~/dataexamples/StockTestValues.Rdata"))
+save(testvalues,file=paste0("dataexamples/StockTestValues.Rdata"))
 
 
 # parametric
@@ -309,6 +309,6 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  MCW2.DR <- DBST(X = MCX2.NP,depth = "H")
                  
                  out <- list("MCW2.P"=MCW2.P,"MCW2.SPS"=MCW2.SPS,"MCW2.NP"=MCW2.NP,"MCW2.DHS"=MCW2.DHS,"MCW2.DR"=MCW2.DR)
-                 save(out,file=paste0("~/dataexamples/AsymptDistStockRun",q,".Rdata"))
+                 save(out,file=paste0("dataexamples/AsymptDistStockRun",q,".Rdata"))
                }
 stopCluster(cl)
