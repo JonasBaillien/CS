@@ -86,7 +86,7 @@ W1.DHS <- DHS(X = X1,type = "all",a = 2,b = 1,c = 1)
 W1.DR <- DBST(X = X1+runif(n1*d1,-0.001,0.001),depth = "H")
 
 ### Asymptotic distribution of test statistics
-dir.create("~/dataexamples")
+dir.create("dataexamples")
 
 testvalues=list("W1.P"=W1.P,"W1.SP"=W1.SP,"W1.SPS"=W1.SPS,"W1.NP"=W1.NP,"W1.DHS"=W1.DHS,"W1.DR"=W1.DR)
 save(testvalues,file=paste0("dataexamples/BodyMeasTestValues.Rdata"))
@@ -234,7 +234,7 @@ W2.DR <- DBST(X = X2+runif(n2*d2,-0.001,0.001),depth = "H")
 
 
 ### Asymptotic distribution of test statistics
-dir.create("~/dataexamples")
+dir.create("dataexamples")
 
 testvalues=list("W2.P"=W2.P,"W2.SP"=W2.SP,"W2.SPS"=W2.SPS,"W2.NP"=W2.NP,"W2.DHS"=W2.DHS,"W2.DR"=W2.DR)
 save(testvalues,file=paste0("dataexamples/StockTestValues.Rdata"))
@@ -250,7 +250,7 @@ out <- foreach(q=1:400,.packages=c('sn','ks','copula','nloptr'),
                  set.seed(58+q)
                  
                  ### required files:
-                 source("~/functions.R")
+                 source("functions.R")
                  
                  # Generate sample of pseudo-observations under the model with assumed central symmetry
                  MCU2.P <- rSNcopula(n = n2,alpha = rep(0,d2), rho = fit2P.S$par)
