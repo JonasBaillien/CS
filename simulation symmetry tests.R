@@ -156,37 +156,32 @@ out <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
                  
                  # generating non-parametric pseudo-observations
                  Pobs.SP <- pobs(x = X)
+                 Pobs.SPS <- pobs(x = XAug)[1:n,]
+                 
                  try({
-                 if(is.null(theta)){
-                 theta <- apply(X,2,median)
-                 X2 <- sweep(x = -X,MARGIN = 2,STATS = 2*theta,FUN = "+")
-                 Pobs.SPS <- pobs(x = rbind(X,X2))[1:n,]
-                 }
-                 # regular fitting
-                 fitReg.SP <- fitSNcopula(u = Pobs.SP,symmetric = F,nstart = nstart,random=T)
-
-                 # symmetric fitting with assumed symmetric margins
-                 fitSym.SP <- fitSNcopula(u = Pobs.SP,symmetric = T,nstart = nstart,random=T)
-
-                 # test statistic with assumed symmetric margins
-                 W.SP <- -2*(fitSym.SP$ll-fitReg.SP$ll)
-
-                 # output
-                 semiparametric <- list("fitSym"=fitSym.SP,"fitReg"=fitReg.SP,
-                                        "TS"=W.SP)
+                   # regular fitting
+                   fitReg.SP <- fitSNcopula(u = Pobs.SP,symmetric = F,nstart = 8,random=T)
+                   
+                   # symmetric fitting with assumed symmetric margins
+                   fitSym.SP <- fitSNcopula(u = Pobs.SPS,symmetric = T,nstart = 25,random=T)
+                   
+                   # test statistic with assumed symmetric margins
+                   W.SP <- -2*(fitSym.SP$ll-fitReg.SP$ll)  
+                   
+                   # regular fitting
+                   fitReg.SP2 <- fitSTcopula(u = Pobs.SP,symmetric = F,nstart = 3,random = T)
+                   
+                   # symmetric fitting with assumed symmetric margins
+                   fitSym.SP2 <- fitSTcopula(u = Pobs.SPS,symmetric = T,nstart = 25,random = T)
+                   
+                   # test statistic with assumed symmetric margins
+                   W.SP2 <- -2*(fitSym.SP2$ll-fitReg.SP2$ll)  
+                   
+                   # output
+                   semiparametric <- list("fitSym1"=fitSym.SP,"fitReg1"=fitReg.SP,
+                                          "TS1"=W.SP,"fitSym2"=fitSym.SP2,"fitReg2"=fitReg.SP2,
+                                          "TS2"=W.SP2,"XAug"=XAug)
                  save(semiparametric,file=paste0("simulation3/teststatsSP/run",q,".Rdata"))
-
-
-                 # symmetric fitting without assumed symmetric margins
-                 fitSym.SPS <- fitSNcopula(u = Pobs.SPS,symmetric = T,nstart = nstart,random=T)
-
-                 # test statistic without  assumed symmetric margins
-                 W.SPS <- -2*(fitSym.SPS$ll-fitReg.SP$ll)
-
-                 # output
-                 semiparametric2 <- list("fitSym"=fitSym.SPS,"fitReg"=fitReg.SP,
-                                    "TS"=W.SPS)
-                 save(semiparametric2,file=paste0("simulation3/teststatsSPS/run",q,".Rdata"))
                  },silent=T)
 }
 stopCluster(cl)
@@ -303,6 +298,69 @@ end.t <- Sys.time()
 time.takenstats <- difftime(end.t,start.t,units = "secs")
 
 
+
+### calculate asymptotic distribution for semi-parametric tests
+cl <- makeCluster(6)
+registerDoParallel(cl)
+start.t=Sys.time()
+SPR <- foreach(q=1:N,.packages=c('sn','ks','copula','nloptr'),
+               .combine = "cbind",.verbose = T,.errorhandling="remove") %dopar% {
+                 
+                 set.seed(27422+q)
+                 
+                 ### required files:
+                 source("functions.R")
+                 
+                 # load in the estimates
+                 load(paste0("simulation3/teststatsNP/run",q,".Rdata"))
+                 XAug <- nonparametric$XAug
+                 
+                 
+                 # determining the asymptotic distribution using Monte Carlo under
+                 # the assumption we know the margins 
+                 # the other option would be bootstrapping from symmetrized 
+                 # pseudo-observations
+                 W.SP1 <- rep(NA,NN)
+                 W.SP2 <- rep(NA,NN)
+                 
+                 for(i in 1:NN){
+                   samp <- XAug[sample(x = 1:(2*n),size = n,replace = T),]
+                   NPfit <- fitNP(X = samp,symmetric = T,IF = IF,GP = GP)
+                   theta <- NPfit$mode
+                   samp2 <- sweep(x = -samp,MARGIN = 2,STATS = 2*theta,FUN = "+")
+                   sampAug <- rbind(samp,samp2)
+                   
+                   # generate pseudo-observations
+                   Pobs.SP <- pobs(samp)
+                   Pobs.SPS <- pobs(x = sampAug)[1:n,] 
+                   try({
+                     # regular fitting
+                     fitReg.SP <- fitSNcopula(u = Pobs.SP,symmetric = F,nstart = 6,random=T)
+                     
+                     # symmetric fitting with assumed symmetric margins
+                     fitSym.SP <- fitSNcopula(u = Pobs.SPS,symmetric = T,nstart = 25,random=T)
+                     
+                     # test statistic with assumed symmetric margins
+                     W.SP1[i] <- -2*(fitSym.SP$ll-fitReg.SP$ll)  
+                     
+                     # regular fitting
+                     fitReg.SP2 <- fitSTcopula(u = Pobs.SP,symmetric = F,nstart = 2,random = T)
+                     
+                     # symmetric fitting with assumed symmetric margins
+                     fitSym.SP2 <- fitSTcopula(u = Pobs.SPS,symmetric = T,nstart = 25,random = T)
+                     
+                     # test statistic with assumed symmetric margins
+                     W.SP2[i] <- -2*(fitSym.SP2$ll-fitReg.SP2$ll)
+                   },silent=T) 
+                 }
+                 # output
+                 TSDist <- list("LRTSP1"=W.SP1,"LRTSP2"=W.SP2)          
+                 save(TSDist,file=paste0("simulation3/teststatsSP/TSDistRun",q,".Rdata"))
+                 
+               }
+stopCluster(cl)
+
+
 ###############################
 ### calculation of p-values ###
 ###############################
@@ -311,7 +369,8 @@ time.takenstats <- difftime(end.t,start.t,units = "secs")
 ### parametric testing under the assumption the margins are known & 
 ### semi-parametric with assumed symmetric margins
 pvalue.P <- rep(NA,N)
-pvalue.SP <- rep(NA,N)
+pvalue.SP1 <- rep(NA,N)
+pvalue.SP2 <- rep(NA,N)
 for(q in 1:N){
   # parametric
   # load in the estimates
@@ -319,8 +378,11 @@ for(q in 1:N){
   # p-value
   pvalue.P[q] <- pchisq(q = parametric$TS,df = d,lower.tail = FALSE)
   
+  # semi-parametric
   load(paste0("simulation3/teststatsSP/run",q,".Rdata"))
-  pvalue.SP[q]<- pchisq(q = semiparametric$TS,df = d,lower.tail = FALSE )
+  load(paste0("simulation3/teststatsSP/TSDistRun",q,".Rdata"))
+  pvalue.SP1[q] <- mean(semiparametric$TS1<TSDist$LRTSP1,na.rm=T)
+  pvalue.SP2[q] <- mean(semiparametric$TS1<TSDist$LRTSP2,na.rm=T)
 }
 
 
